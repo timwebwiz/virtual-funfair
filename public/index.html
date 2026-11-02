@@ -11,13 +11,22 @@
  button,input{font-size:16px;padding:10px;margin:6px;border-radius:8px;border:0}
  button{background:#ffd23f;font-weight:700;cursor:pointer}
  video,canvas#snap{width:240px;border-radius:12px;display:none;margin:auto}
+ #custom{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:#000b;z-index:5;overflow:auto}
+ #custom .panel{display:flex;gap:16px;background:#1b1f3a;padding:18px;border-radius:16px;max-width:620px;flex-wrap:wrap;justify-content:center;max-height:96vh;overflow:auto}
+ #fields{display:flex;flex-direction:column;gap:4px;min-width:240px}
+ .row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:14px}
+ .row input,.row select{margin:0;padding:4px;width:110px;font-size:14px}
+ .row input[type=color]{padding:0;height:28px}
+ .row input[type=checkbox]{width:auto}
+ #preview{width:220px;height:300px;background:linear-gradient(#5b6cff,#c06cff);border-radius:12px}
  #hud{position:fixed;top:8px;left:8px;font-size:14px;text-shadow:0 0 4px #000}
  #chat{position:fixed;bottom:8px;left:8px;display:none}
  #joy{position:fixed;bottom:20px;right:20px;width:120px;height:120px;border-radius:50%;background:#fff3;display:none;touch-action:none}
+ #park{position:fixed;top:34px;left:50%;transform:translateX(-50%);font-size:13px;background:#000a;padding:4px 10px;border-radius:8px;pointer-events:none}
  #radio{position:fixed;top:8px;right:8px;width:300px;font:12px monospace;color:#7CFC00;background:#000a;padding:6px;border-radius:8px;pointer-events:none}
  #radio div{margin:2px 0}
- #acts{position:fixed;bottom:30px;left:20px;display:none;gap:12px}
- #acts button{width:72px;height:72px;border-radius:50%;font-size:28px;padding:0;opacity:.85;touch-action:manipulation}
+ #acts{position:fixed;bottom:20px;left:12px;display:none;gap:8px;flex-wrap:wrap;max-width:190px}
+ #acts button{width:56px;height:56px;border-radius:50%;font-size:22px;padding:0;opacity:.85;touch-action:manipulation}
  #nub{position:absolute;width:50px;height:50px;border-radius:50%;background:#fff8;left:35px;top:35px}
 </style></head><body>
 <div id="ui"><div class="card">
@@ -27,13 +36,15 @@
  <input id="file" type="file" accept="image/*" capture="user"><br>
  <button id="cam">📷 Use camera</button><button id="shot" style="display:none">Capture</button>
  <video id="vid" autoplay playsinline muted></video><canvas id="snap" width="256" height="256"></canvas>
- <br><button id="go">Enter the Funfair</button>
+ <br><button id="custBtn">🎨 Customize avatar</button><br><button id="go">Enter the Funfair</button>
  <p id="msg" style="font-size:12px"></p>
 </div></div>
-<div id="hud">WASD / arrows / joystick: move · E: shout (attracts security) · F: faint · H: injured · C: severe emergency (medic + ambulance)</div>
+<div id="custom"><div class="panel"><div><canvas id="preview" width="220" height="300"></canvas><p style="font-size:12px;margin:6px 0">Yellow bar = 175 cm. Set your real height and build so your avatar matches you.</p></div><div><div id="fields"></div><button id="randomize">🎲 Random</button><button id="custDone">Done</button></div></div></div>
+<div id="hud">WASD / arrows / joystick: move · E: shout (attracts security) · F: faint · H: injured · C: severe emergency (medic + ambulance) · R: call maintenance · L: drop litter · M: edit avatar · Shift: sprint · Space: jump · drag: rotate camera</div>
 <input id="chat" placeholder="Say something + Enter" maxlength="120">
+<div id="park">🧹 Cleanliness <b id="cl">100</b>% · <span id="rd">Rides: all running</span></div>
 <div id="radio"><b>📻 Security radio</b></div>
-<div id="acts"><button id="bShout" aria-label="Shout">📢</button><button id="bFaint" aria-label="Faint">😵</button><button id="bHurt" aria-label="Hurt">🩹</button><button id="bCrit" aria-label="Severe emergency">🚑</button></div>
+<div id="acts"><button id="bShout" aria-label="Shout">📢</button><button id="bFaint" aria-label="Faint">😵</button><button id="bHurt" aria-label="Hurt">🩹</button><button id="bCrit" aria-label="Severe emergency">🚑</button><button id="bMaint" aria-label="Call maintenance">🧰</button><button id="bLitter" aria-label="Drop litter">🗑️</button><button id="bJump" aria-label="Jump">⤴️</button><button id="bEdit" aria-label="Edit avatar">🎨</button></div>
 <div id="joy"><div id="nub"></div></div>
 <script type="module" src="main.js"></script>
 </body></html>

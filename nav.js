@@ -8,11 +8,13 @@ export const STATIONS = [{ x: -24, z: 14, name: 'First Aid Station A' }, { x: 24
 export const HOSPITAL = { x: 45, z: 45, name: 'Park Hospital' };
 export const HOSP_DOOR = [44, 38];
 export const AMB_BAY = [30, 38];
+export const DEPOT = { x: -45, z: 45, name: 'Maintenance Depot' };
 
 export const OBSTACLES = [
   rect(-30, -30, 4.5, 1.2, 0),            // ferris wheel base/legs
   circle(30, -20, 6.5),                   // carousel
   rect(HOSPITAL.x, HOSPITAL.z, 5.5, 6.5, 0),
+  rect(DEPOT.x, DEPOT.z, 4, 5, 0),
   ...Array.from({ length: 6 }, (_, i) => { const a = i / 6 * Math.PI * 2; return rect(Math.cos(a) * 18, Math.sin(a) * 18, 2, 1.5, a); }), // booths
   ...STATIONS.map(s => rect(s.x, s.z, 2.5, 2, Math.atan2(s.z, s.x)))
 ];

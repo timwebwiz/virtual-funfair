@@ -14,6 +14,7 @@
  #hud{position:fixed;top:8px;left:8px;font-size:14px;text-shadow:0 0 4px #000}
  #chat{position:fixed;bottom:8px;left:8px;display:none}
  #joy{position:fixed;bottom:20px;right:20px;width:120px;height:120px;border-radius:50%;background:#fff3;display:none;touch-action:none}
+ #park{position:fixed;top:34px;left:50%;transform:translateX(-50%);font-size:13px;background:#000a;padding:4px 10px;border-radius:8px;pointer-events:none}
  #radio{position:fixed;top:8px;right:8px;width:300px;font:12px monospace;color:#7CFC00;background:#000a;padding:6px;border-radius:8px;pointer-events:none}
  #radio div{margin:2px 0}
  #acts{position:fixed;bottom:30px;left:20px;display:none;gap:12px}
@@ -30,10 +31,11 @@
  <br><button id="go">Enter the Funfair</button>
  <p id="msg" style="font-size:12px"></p>
 </div></div>
-<div id="hud">WASD / arrows / joystick: move · E: shout (attracts security) · F: faint · H: injured · C: severe emergency (medic + ambulance)</div>
+<div id="hud">WASD / arrows / joystick: move · E: shout (attracts security) · F: faint · H: injured · C: severe emergency (medic + ambulance) · R: call maintenance · L: drop litter</div>
 <input id="chat" placeholder="Say something + Enter" maxlength="120">
+<div id="park">🧹 Cleanliness <b id="cl">100</b>% · <span id="rd">Rides: all running</span></div>
 <div id="radio"><b>📻 Security radio</b></div>
-<div id="acts"><button id="bShout" aria-label="Shout">📢</button><button id="bFaint" aria-label="Faint">😵</button><button id="bHurt" aria-label="Hurt">🩹</button><button id="bCrit" aria-label="Severe emergency">🚑</button></div>
+<div id="acts"><button id="bShout" aria-label="Shout">📢</button><button id="bFaint" aria-label="Faint">😵</button><button id="bHurt" aria-label="Hurt">🩹</button><button id="bCrit" aria-label="Severe emergency">🚑</button><button id="bMaint" aria-label="Call maintenance">🧰</button><button id="bLitter" aria-label="Drop litter">🗑️</button></div>
 <div id="joy"><div id="nub"></div></div>
 <script type="module" src="main.js"></script>
 </body></html>

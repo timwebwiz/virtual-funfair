@@ -1,5 +1,6 @@
 // Server-authoritative NPC simulation: security, medics, visitors, ambulance.
-import { findPath, isBlocked, STATIONS, HOSPITAL, HOSP_DOOR, AMB_BAY, front } from './nav.js';
+import { findPath, isBlocked, STATIONS, HOSPITAL, HOSP_DOOR, AMB_BAY, DEPOT, front } from './nav.js';
+import { maintMethods } from './maint.js';
 const boothFront = i => { const a = i / 6 * Math.PI * 2; return [Math.cos(a) * 14, Math.sin(a) * 14]; };
 const SPOTS = {
   wheel: [-30, -22], carousel: [30, -12], booth0: boothFront(0), booth1: boothFront(1), booth2: boothFront(2),
@@ -7,14 +8,16 @@ const SPOTS = {
 };
 const SHELTER = [[30, -12], boothFront(0), boothFront(3)];
 const PATROL = [[0, 12], [14, 8], [14, -10], [0, -14], [-14, -10], [-14, 8]];
-const SPEED = { security: 3.2, medic: 3.6, visitor: 2.0, ambulance: 8 };
+const SPEED = { security: 3.2, medic: 3.6, visitor: 2.0, ambulance: 8, maintenance: 2.8 };
 const NAMES = {
   visitor: ['Ava', 'Ben', 'Chloe', 'Dev', 'Eli', 'Fay', 'Gus', 'Hana', 'Ivan', 'Jo', 'Kai', 'Lena', 'Max', 'Nia', 'Omar', 'Pia', 'Quin', 'Rae', 'Sam', 'Tara', 'Uma', 'Vic', 'Wes', 'Zoe'],
   security: ['Officer Reyes', 'Officer Kim', 'Officer Novak'],
+  maintenance: ['Maint. Costa', 'Maint. Dubois', 'Maint. Ito', 'Maint. Mbeki', 'Maint. Petrov', 'Maint. Silva'],
   medic: ['Medic Okafor', 'Medic Lindqvist', 'Medic Haddad', 'Medic Tanaka']
 };
 const LOOKS = {
   security: { skin: '#c68863', hair: '#111111', shirt: '#1d3557', pants: '#0b132b', vest: '#ffd400' },
+  maintenance: { skin: '#d9a07a', hair: '#2b2118', shirt: '#ff8c00', pants: '#3b4a5a', vest: '#c6ff00', hat: '#ffd400' },
   medic: { skin: '#e0ac8c', hair: '#5a3a1a', shirt: '#f8f9fa', pants: '#2a9d8f', vest: '#e63946' }
 };
 const POSTS = [[0, 26], [-26, -22], [26, -12]]; // gate, ferris wheel, carousel
@@ -42,7 +45,7 @@ export class World {
     this.wasNight = false; this.statusT = 60; this.lastAlert = 0;
     this.stations = STATIONS.map(st => ({ ...st, supplies: 12 }));
     this.stations.forEach((_, i) => this.spawn('medic', 'station', i)); this.spawn('medic', 'roamer');
-    this.supplyT = 10; this.emsQueue = []; this.spawnAmbulance();
+    this.supplyT = 10; this.emsQueue = []; this.spawnAmbulance(); this.initMaintenance();
     for (let i = 0; i < 8; i++) this.spawn('visitor');
   }
 
@@ -54,9 +57,9 @@ export class World {
   reached(n, e, r) { return dist(n, e) < r || (n.arrived && n.snapped); }
 
   spawn(role, duty, station) {
-    const [x, z] = SPOTS.gate;
+    const [x, z] = role === 'maintenance' ? front(DEPOT, 9) : SPOTS.gate;
     const n = {
-      id: this.nextId++, role, name: duty === 'supervisor' ? 'Sgt. Alvarez' : role === 'medic' ? NAMES.medic[this.npcs.filter(o => o.role === 'medic').length % 4] : pick(NAMES[role]),
+      id: this.nextId++, role, name: duty === 'supervisor' ? 'Sgt. Alvarez' : role === 'medic' ? NAMES.medic[this.npcs.filter(o => o.role === 'medic').length % 4] : role === 'maintenance' ? NAMES.maintenance[(this.maintCount = (this.maintCount || 0) + 1) % 6] : pick(NAMES[role]),
       spd: rnd(0.85, 1.15), station, kit: KIT, duty, post: duty === 'guard' ? POSTS[this.npcs.filter(o => o.duty === 'guard').length % POSTS.length] : null, senseT: 0,
       look: duty === 'supervisor' ? { ...LOOKS.security, vest: '#ff6b00' } : LOOKS[role] || randomLook(), x: x + rnd(-4, 4), z: z + rnd(-2, 2), ry: 0,
       state: 'idle', tx: 0, tz: 0, wait: rnd(0, 3), target: null, down: false, say: '', sayT: 0, mood: 'happy', cool: 0, pi: Math.floor(Math.random() * PATROL.length)
@@ -64,6 +67,10 @@ export class World {
     this.npcs.push(n); return n;
   }
 
+  openSpot() { // rides that are broken are closed to visitors
+    const closed = k => this.rides && this.rides[k] && this.rides[k].state !== 'ok';
+    return pick(Object.entries(SPOTS).filter(([k]) => !closed(k)).map(([, v]) => v));
+  }
   speak(n, text) { if (n.sayT > 0) return; n.say = text; n.sayT = 4; }
   goTo(n, x, z) {
     x = Math.max(-72, Math.min(72, x)); z = Math.max(-72, Math.min(72, z));
@@ -88,7 +95,7 @@ export class World {
     const secs = this.npcs.filter(n => n.role === 'security');
     for (const inc of this.incidents) {
       inc.units = inc.units.filter(u => this.npcs.includes(u));
-      const need = inc.kind === 'violation' ? 1 : inc.kind === 'medical' ? 1 + (this.alert >= 2 ? 1 : 0) : 1 + (this.alert >= 2 ? 1 : 0);
+      const need = inc.kind === 'hazard' ? (inc.major ? 2 : 1) : inc.kind === 'violation' ? 1 : inc.kind === 'medical' ? 1 + (this.alert >= 2 ? 1 : 0) : 1 + (this.alert >= 2 ? 1 : 0);
       while (inc.units.length < need) {
         const busy = u => this.incidents.some(o => o.units.includes(u));
         let free = secs.filter(u => !busy(u) && u.duty !== 'supervisor');
@@ -96,7 +103,7 @@ export class World {
         if (!free.length) break;
         free.sort((a, b) => dist(a, inc) - dist(b, inc));
         const u = free[0]; inc.units.push(u);
-        const why = inc.kind === 'medical' ? 'medical scene' : inc.kind === 'violation' ? 'restricted-area violation' : 'disturbance';
+        const why = inc.kind === 'medical' ? 'medical scene' : inc.kind === 'violation' ? 'restricted-area violation' : inc.kind === 'hazard' ? 'ride fault, securing the area' : 'disturbance';
         this.radio(u.name, `Copy, responding to ${why} near ${this.place(inc.x, inc.z)}.`);
       }
     }
@@ -104,6 +111,7 @@ export class World {
 
   // ---- player actions ----
   playerAction(p, act) {
+    if (act === 'litter' || act === 'maint') { this.maintAction(p, act); return; }
     if (act === 'shout') {
       this.addIncident({ kind: 'disturbance', x: p.x, z: p.z, by: p.id });
       this.alert = Math.min(3, this.alert + 1);
@@ -140,6 +148,7 @@ export class World {
     this.weatherT -= dt;
     if (this.weatherT <= 0) { this.weather = this.weather === 'clear' ? 'rain' : 'clear'; this.weatherT = rnd(40, 90); this.radio('Park Management', this.weather === 'rain' ? 'Rain moving in. Watch for slippery ground and keep guests sheltered.' : 'Rain has cleared. Resume normal patrols.'); }
     this.incidents = this.incidents.filter(i => {
+      if (i.hold) return i.hold();
       if (i.ref) {
         const alive = i.ref.kind === 'p' ? this.players.has(i.ref.e.id) : this.npcs.includes(i.ref.e);
         if (alive && i.ref.e.down) { i.x = i.ref.e.x; i.z = i.ref.e.z; return true; }
@@ -183,6 +192,7 @@ export class World {
         v.cause = v.sev === 'critical' ? 'cardiac arrest' : v.sev === 'serious' ? (hot ? 'heat stroke' : 'collapse') : (this.weather === 'rain' ? 'slip' : 'sprain');
       }
     }
+    this.maintWorld(dt, visitors);
     // management resupplies stations
     this.supplyT -= dt;
     if (this.supplyT <= 0) { this.supplyT = 10; this.stations.forEach(st => { if (st.supplies < 12) st.supplies++; }); }
@@ -200,6 +210,7 @@ export class World {
       if (n.role === 'ambulance') this.ambulance(n, dt);
       else if (n.role === 'medic') this.medic(n, dt);
       else if (n.role === 'security') this.security(n, dt);
+      else if (n.role === 'maintenance') this.maintenance(n, dt);
       else this.visitor(n, dt, downed, night);
       this.move(n, dt);
     }
@@ -214,7 +225,7 @@ export class World {
   }
 
   move(n, dt) {
-    if (['idle', 'talk', 'treat', 'watch', 'load', 'attend'].includes(n.state)) return;
+    if (['idle', 'talk', 'treat', 'watch', 'load', 'attend', 'work'].includes(n.state)) return;
     let gx = n.tx, gz = n.tz, last = true;
     if (n.path && n.wp < n.path.length) { [gx, gz] = n.path[n.wp]; last = n.wp === n.path.length - 1; }
     const dx = gx - n.x, dz = gz - n.z, d = Math.hypot(dx, dz);
@@ -396,6 +407,14 @@ export class World {
       if (n.arrived && n.cool <= 0) { this.face(n, inc); this.speak(n, primary ? 'Medic is coming, hang in there!' : 'Please give them room.'); n.cool = 8; }
       return;
     }
+    if (inc.kind === 'hazard') { // cordon: stand off the ride and keep guests back
+      const a = inc.units.indexOf(n) * Math.PI;
+      this.goTo(n, inc.x + Math.cos(a) * 3, inc.z + 3 + Math.sin(a) * 3);
+      if (!this.reached(n, { x: n.goalX, z: n.goalZ }, 1.5)) { n.state = 'respond'; return; }
+      n.state = 'watch'; this.face(n, inc);
+      if (n.cool <= 0) { this.speak(n, inc.major ? 'Move away from the ride, now!' : 'Ride closed for maintenance, please stay back.'); n.cool = 8; }
+      return;
+    }
     this.goTo(n, inc.x, inc.z);
     if (!this.reached(n, inc, 2.5)) { n.state = 'respond'; return; }
     n.state = 'watch'; this.face(n, inc);
@@ -459,9 +478,9 @@ export class World {
       return;
     }
     // react to loud incident: gawk or flee
-    const inc = this.incidents.find(i => i.kind === 'disturbance' && dist(n, i) < 10);
+    const inc = this.incidents.find(i => (i.kind === 'disturbance' || (i.kind === 'hazard' && i.major)) && dist(n, i) < 10);
     if (inc && n.state !== 'flee') {
-      if (n.mood === 'nervous' || Math.random() < 0.3) {
+      if (inc.kind === 'hazard' || n.mood === 'nervous' || Math.random() < 0.3) {
         n.state = 'flee'; this.goTo(n, n.x + (n.x - inc.x) * 2, n.z + (n.z - inc.z) * 2); this.speak(n, 'Whoa, let\'s get away!'); n.wait = 4; return;
       }
     }
@@ -485,18 +504,19 @@ export class World {
     }
     n.wait -= dt;
     if (n.state === 'talk' || n.state === 'idle') {
-      if (n.wait <= 0) { n.state = 'walk'; this.go(n, pick(Object.values(SPOTS))); }
+      if (n.wait <= 0) { n.state = 'walk'; this.go(n, this.openSpot()); }
     } else if (n.state === 'walk' && n.arrived) { n.state = 'idle'; n.wait = rnd(3, 8); }
-    else if (n.state === 'walk' && !n.tx && !n.tz) this.go(n, pick(Object.values(SPOTS)));
+    else if (n.state === 'walk' && !n.tx && !n.tz) this.go(n, this.openSpot());
     if (Math.random() < dt * 0.002) n.mood = n.mood === 'happy' ? 'nervous' : 'happy';
   }
 
   snapshot() {
     return {
-      t: 'npcs', w: this.weather, c: Math.round(this.clock), a: Math.round(this.alert * 10) / 10,
-      n: this.npcs.map(n => ({ id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2), r: +n.ry.toFixed(2), d: n.down ? 1 : 0, s: n.say, e: n.siren ? 1 : 0, m: n.state === 'walk' || n.state === 'drive' || n.state === 'respond' || n.state === 'flee' || n.state === 'shelter' ? 1 : 0 }))
+      t: 'npcs', ...this.maintSnapshot(), w: this.weather, c: Math.round(this.clock), a: Math.round(this.alert * 10) / 10,
+      n: this.npcs.map(n => ({ id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2), r: +n.ry.toFixed(2), d: n.down ? 1 : 0, s: n.say, e: n.siren ? 1 : 0, m: n.state === 'walk' || n.state === 'drive' || (n.state === 'dump') || n.state === 'respond' || n.state === 'flee' || n.state === 'shelter' ? 1 : 0 }))
     };
   }
   roster() { return this.npcs.map(n => ({ id: n.id, role: n.role, name: n.name, look: n.look })); }
   stationList() { return STATIONS; }
 }
+Object.assign(World.prototype, maintMethods);

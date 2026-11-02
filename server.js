@@ -48,7 +48,7 @@ wss.on('connection', ws => {
       if (!blockedPoint(nx, nz, 0.3)) { p.x = nx; p.z = nz; }
       p.ry = num(m.ry);
       broadcast({ t: 'move', id, x: p.x, z: p.z, ry: p.ry }, ws);
-    } else if (m.t === 'act' && players.has(id) && ['shout', 'faint', 'hurt', 'critical'].includes(m.a)) {
+    } else if (m.t === 'act' && players.has(id) && ['shout', 'faint', 'hurt', 'critical', 'litter', 'maint'].includes(m.a)) {
       world.playerAction(players.get(id), m.a);
     } else if (m.t === 'chat' && players.has(id)) {
       broadcast({ t: 'chat', id, text: String(m.text).slice(0, 120) });

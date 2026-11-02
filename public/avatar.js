@@ -42,7 +42,8 @@ export function buildAvatar(a) {
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.2, 32), new THREE.MeshBasicMaterial({ map: tex }));
     face.position.set(0, 1.7, 0.2); head.parent.add(face);
   }
-  add(new THREE.SphereGeometry(0.27, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat(a.hair, 0.9), 0, 1.74, -0.02);
+  if (a.hat) add(new THREE.SphereGeometry(0.29, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), mat(a.hat, 0.4), 0, 1.76, 0);
+  else add(new THREE.SphereGeometry(0.27, 32, 16, 0, Math.PI * 2, 0, Math.PI / 2), mat(a.hair, 0.9), 0, 1.74, -0.02);
   add(new THREE.CylinderGeometry(0.08, 0.09, 0.12), skin, 0, 1.48, 0);
   add(new THREE.CapsuleGeometry(0.22, 0.45, 8, 16), mat(a.shirt), 0, 1.15, 0);
   if (a.vest) add(new THREE.CylinderGeometry(0.235, 0.235, 0.3, 20, 1, true), new THREE.MeshStandardMaterial({ color: a.vest, side: THREE.DoubleSide, emissive: a.vest, emissiveIntensity: 0.25 }), 0, 1.15, 0);

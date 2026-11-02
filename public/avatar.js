@@ -54,6 +54,39 @@ export const defaultAvatar = () => ({
 const mat = (color, rough = 0.6) => new THREE.MeshStandardMaterial({ color, roughness: rough });
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
+// Procedural CGI face: shaded skin, sculpted nose, glossy eyes, brows and lips, seeded per character.
+const shade = (hex, k) => { const c = new THREE.Color(hex); c.multiplyScalar(k); return '#' + c.getHexString(); };
+export function cgiFaceTexture(a, seed = 1) {
+  const r = (() => { let x = (seed * 9301 + 49297) % 233280; return () => ((x = (x * 9301 + 49297) % 233280) / 233280); })();
+  const S = 256, c = document.createElement('canvas'); c.width = c.height = S; const g = c.getContext('2d');
+  const skin = a.skin || '#e0ac88', hair = a.hair || '#3a2a1a';
+  const base = g.createRadialGradient(S * 0.5, S * 0.42, 10, S / 2, S / 2, S * 0.55);
+  base.addColorStop(0, shade(skin, 1.08)); base.addColorStop(1, shade(skin, 0.85));
+  g.fillStyle = base; g.fillRect(0, 0, S, S);
+  const blob = (x, y, rx, ry, col, al) => { g.save(); g.translate(x, y); g.scale(rx, ry); const gr = g.createRadialGradient(0, 0, 0, 0, 0, 1); gr.addColorStop(0, col); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.globalAlpha = al; g.fillStyle = gr; g.beginPath(); g.arc(0, 0, 1, 0, 7); g.fill(); g.restore(); };
+  const eyeY = S * (0.44 + r() * 0.03), gap = S * (0.18 + r() * 0.04), er = S * (0.055 + r() * 0.015);
+  blob(S * 0.2, S * 0.62, 30, 22, '#e8737a', 0.28); blob(S * 0.8, S * 0.62, 30, 22, '#e8737a', 0.28); // cheeks
+  blob(S / 2 + 10, S * 0.6, 14, 24, shade(skin, 0.6), 0.25); blob(S / 2, S * 0.56, 12, 18, shade(skin, 1.25), 0.3); // nose
+  g.strokeStyle = shade(skin, 0.55); g.globalAlpha = 0.6; g.lineWidth = 2.5; g.beginPath(); g.arc(S / 2 - 12, S * 0.66, 7, 0.2, Math.PI - 0.6); g.arc(S / 2 + 12, S * 0.66, 7, 0.6, Math.PI - 0.2); g.stroke(); g.globalAlpha = 1; // nostrils
+  const iris = ['#4a7bd0', '#5a8a3a', '#6b4423', '#3a2a20', '#7a8a8a'][Math.floor(r() * 5)];
+  for (const sx of [-1, 1]) {
+    const x = S / 2 + sx * gap;
+    blob(x, eyeY + 4, er * 2, er * 1.2, shade(skin, 0.5), 0.3); // eye socket shadow
+    g.fillStyle = '#f7f5f2'; g.beginPath(); g.ellipse(x, eyeY, er * 1.5, er * 0.85, 0, 0, 7); g.fill();
+    const ig = g.createRadialGradient(x, eyeY, 1, x, eyeY, er * 0.9); ig.addColorStop(0, shade(iris, 1.4)); ig.addColorStop(1, shade(iris, 0.55));
+    g.fillStyle = ig; g.beginPath(); g.arc(x, eyeY, er * 0.85, 0, 7); g.fill();
+    g.fillStyle = '#050505'; g.beginPath(); g.arc(x, eyeY, er * 0.4, 0, 7); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(x - er * 0.3, eyeY - er * 0.3, er * 0.22, 0, 7); g.fill();
+    g.strokeStyle = shade(hair, 0.5); g.lineWidth = 3; g.beginPath(); g.ellipse(x, eyeY, er * 1.5, er * 0.9, 0, Math.PI * 1.05, Math.PI * 1.95); g.stroke(); // upper lid + lashes
+    g.strokeStyle = shade(hair, 0.8); g.lineWidth = 5 + r() * 2; g.lineCap = 'round'; g.beginPath(); g.moveTo(x - sx * er * 1.7, eyeY - er * 1.9 + sx * 3); g.quadraticCurveTo(x, eyeY - er * 2.5, x + sx * er * 1.7, eyeY - er * 1.7); g.stroke(); // brow
+  }
+  const my = S * 0.78, mw = S * (0.1 + r() * 0.03), lip = ['#b5545a', '#c0706a', '#9a4a4a'][Math.floor(r() * 3)];
+  g.fillStyle = lip; g.beginPath(); g.moveTo(S / 2 - mw, my); g.quadraticCurveTo(S / 2, my - 10, S / 2 + mw, my); g.quadraticCurveTo(S / 2, my + 14, S / 2 - mw, my); g.fill();
+  g.strokeStyle = shade(lip, 0.5); g.lineWidth = 2; g.beginPath(); g.moveTo(S / 2 - mw, my); g.quadraticCurveTo(S / 2, my + 3, S / 2 + mw, my); g.stroke();
+  g.fillStyle = 'rgba(255,255,255,0.35)'; g.beginPath(); g.ellipse(S / 2, my + 5, mw * 0.4, 2.5, 0, 0, 7); g.fill();
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; return tex;
+}
+
 // Builds the avatar. Height (cm) scales the whole body; build widens/narrows it, so the
 // in-game body matches the player's real height and proportions.
 export function buildAvatar(input) {
@@ -74,6 +107,10 @@ export function buildAvatar(input) {
     const tex = new THREE.TextureLoader().load(a.face);
     tex.colorSpace = THREE.SRGBColorSpace;
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.2, 32), new THREE.MeshBasicMaterial({ map: tex }));
+    face.position.set(0, 1.7, 0.2); HI.add(face);
+  }
+  else if (a.cgi) {
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.2, 32), new THREE.MeshStandardMaterial({ map: cgiFaceTexture(a, a.cgi), roughness: 0.55 }));
     face.position.set(0, 1.7, 0.2); HI.add(face);
   }
   add(body, new THREE.CylinderGeometry(0.08, 0.09, 0.12), skin, 0, 1.48, 0);
@@ -107,7 +144,7 @@ export function buildAvatar(input) {
   const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 6, 14, Math.PI), dark); mouth.name = 'mouth'; mouth.position.set(0, 1.64, 0.26); HI.add(mouth);
   for (const [n, sx] of [['browL', -1], ['browR', 1]]) { const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.014, 0.014), dark); b2.name = n; b2.position.set(sx * 0.09, 1.78, 0.25); HI.add(b2); }
   const sweat = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), new THREE.MeshStandardMaterial({ color: '#7dd3fc', transparent: true, opacity: 0.85 })); sweat.name = 'sweat'; sweat.position.set(0.2, 1.8, 0.14); sweat.visible = false; HI.add(sweat);
-  H.name = 'headPivot'; body.name = 'body'; outer.userData.hasFace = !!a.face;
+  H.name = 'headPivot'; body.name = 'body'; outer.userData.hasFace = !!(a.face || a.cgi);
 
   // torso
   add(body, new THREE.CapsuleGeometry(0.22, 0.45, 8, 16), shirt, 0, 1.15, 0);

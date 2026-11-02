@@ -20,7 +20,8 @@ let onAvatarChange = () => {};
 const customizer = initCustomizer({ root: $('custom'), get: () => avatar, set: a => { avatar = a; saveAvatar(); } });
 const openCustom = () => { $('custom').style.display = 'flex'; customizer.show(); };
 const closeCustom = () => { $('custom').style.display = 'none'; customizer.hide(); onAvatarChange(); };
-$('custBtn').onclick = openCustom; $('custDone').onclick = closeCustom;
+$('custBtn').onclick = openCustom;
+$('faceBtn').onclick = () => { $('custom').style.display = 'flex'; customizer.showFace(); }; $('custDone').onclick = closeCustom;
 const photoAvatar = p => { avatar = { ...avatar, ...p, faceMode: 'photo' }; saveAvatar(); };
 
 // ---------- Photo capture / upload ----------

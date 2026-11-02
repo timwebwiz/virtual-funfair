@@ -36,7 +36,7 @@ export function initCustomizer({ root, get, set }) {
   for (const [k, l] of TRAITS) inputs[k] = row(l, Object.assign(document.createElement('input'), { type: 'range', min: TRAIT_RANGE[0], max: TRAIT_RANGE[1], step: 1 }));
   for (const [k, l, opts] of PERSONAL) { const s2 = document.createElement('select'); opts.forEach(o => s2.add(new Option(LANGS[o] || cap(o), o))); inputs[k] = row(l, s2); }
   // ---- Face: photo, camera or build-your-own ----
-  const head = document.createElement('div'); head.style.cssText = 'font-weight:bold;margin:10px 0 4px'; head.textContent = 'Face'; f.append(head);
+  const head = document.createElement('div'); head.id = 'faceHead'; head.style.cssText = 'font-weight:bold;margin:10px 0 4px'; head.textContent = 'Face'; f.append(head);
   const mode = row('Face source', document.createElement('select'));
   [['photo', 'My photo'], ['built', 'Build my face'], ['plain', 'Simple (no face)']].forEach(([v, l]) => mode.add(new Option(l, v)));
   const fMsg = document.createElement('div'); fMsg.style.cssText = 'font-size:12px;margin:2px 0'; f.append(fMsg);
@@ -119,6 +119,7 @@ export function initCustomizer({ root, get, set }) {
   return {
     show() { write(); rebuild(); open = true; cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); },
     hide() { open = false; stopCam(); },
-    refresh() { write(); rebuild(); }
+    refresh() { write(); rebuild(); },
+    showFace() { const a = { ...get(), faceMode: 'built' }; set(a); this.show(); head.scrollIntoView({ block: 'start' }); }
   };
 }

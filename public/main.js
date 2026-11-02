@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { Voice, voiceLevel, intelligibility, heardAs, Memory, recallText, BAD, Learning, predictContact, secondsToWinded, forecast, adaptPace, strategyOf, decaySlips } from './mind.js';
 import { Body, climate, easePressure, pressureTrend, vibrationAt, fieldAt, compass, limbs, bodyState, bodyNotice } from './body.js';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateAvatar, EMOTES } from './avatar.js';
 import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE, balanceFor, stumbleRate, slopeSpeed, cognitiveLoad, focusState } from './playerstate.js';
@@ -329,7 +330,7 @@ function start(name) {
     else if (m.t === 'note') $('hud').textContent = m.text;
     else if (m.t === 'bonus') { xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
     else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
-    else if (m.t === 'chat') { $('hud').textContent = `${m.id === myId ? name : 'Player ' + m.id}: ${m.text}`; }
+    else if (m.t === 'chat') { if (m.id === myId) $('hud').textContent = `${name}: ${m.text}`; else { const og = others.get(m.id), d = og ? Math.hypot(og.position.x - me.position.x, og.position.z - me.position.z) : 10, lvl = m.text === m.text.toUpperCase() && /[A-Z]/.test(m.text) ? 'shout' : 'normal', q = intelligibility(d, loudNow, lvl), h = heardAs(m.text, q), who = (og && og.userData.name) || 'Player ' + m.id; $('hud').textContent = h === null ? `${who} says something, but you cannot make it out.` : `${who}${q < 0.5 ? ' (hard to hear)' : ''}: ${h}`; if (og && h !== null) { const a = Math.atan2(og.position.x - me.position.x, og.position.z - me.position.z); lkListen = { a: a - me.rotation.y, until: performance.now() + 2500 }; } } }
   };
 
   // ---------- Input ----------
@@ -353,14 +354,18 @@ function start(name) {
     if (k === 'l') dropLitter();
   });
   const jump = () => { if (me.position.y - heightAt(me.position.x, me.position.z) <= 0.001 && !meDown && !meHurt && !vitals.winded && vitals.stamina > 10) { vy = stats.jump * (carryingId() ? 0.7 : 1); vitals.stamina -= 8; } };
-  const shout = () => { if (meDown) return; act('shout'); $('hud').textContent = 'You shouted! Security may come over.'; };
+  const shout = () => { if (meDown) return; act('shout'); voice.say('shout'); const vt = voice.tone('shout'); tone(vt.f, 0.25, vt.v, 0); $('hud').textContent = voice.hoarse ? 'You shouted, but your voice cracks. You are getting hoarse.' : 'You shouted! Security may come over.'; };
   const faint = () => { if (meDown) return; act('faint'); meDown = true; setDown(me, true); $('hud').textContent = 'You fainted. Wait for a medic.'; };
   const callMaint = () => { act('maint'); $('hud').textContent = 'You called maintenance. Help is on the way.'; };
   // ---- senses: taste, touch, audio ----
   const temp0 = () => feelTemp(clockMin, weather) || 'mild';
-  const body = new Body();
+  const body = new Body(), voice = new Voice();
+  let saved = {}; try { saved = JSON.parse(localStorage.getItem('vf-mind') || '{}'); } catch {}
+  const mem = new Memory(saved.places || []), learn = new Learning(saved.counts || {}, saved.flavors || {});
+  let lkListen = null, recentSlips = 0, paceMul = 1, lastRecall = new Map(), lastPredict = 0, lastForecast = '', lastWinded = 0, predSlow = 1, lastPos = null;
+  const noteEvent = (kind, note) => { mem.remember(kind, me.position.x, me.position.z, note); learn.note(kind); if (kind === 'slip') recentSlips++; try { localStorage.setItem('vf-mind', JSON.stringify({ places: mem.places, counts: learn.counts, flavors: learn.flavors })); } catch {} };
   let pressNow = 1013, prevBody = null, lastBodyMsg = 0, vibNow = 0, fieldNow = 0, lastVibBuzz = 0, bodyT = 0;
-  const zap = () => { const s = body.discharge(); if (!s) return; body.hurt(0.15); react('startle', 900, true); buzz('burn'); tone(1400, 0.05, 0.05, 0); $('hud').textContent = 'Zap! A static shock jumps from your hand.'; };
+  const zap = () => { const s = body.discharge(); if (!s) return; body.hurt(0.15); react('startle', 900, true); buzz('burn'); tone(1400, 0.05, 0.05, 0); $('hud').textContent = 'Zap! A static shock jumps from your hand.'; noteEvent('zap'); };
   let actx = null, lastTaste = 0, burnUntil = 0, lastSmellMsg = '', lastSoundMsg = 0, vest = new Vestibular(), senseDizzy = 0;
   const tone = (f, d, v, pan) => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(), p = actx.createStereoPanner ? actx.createStereoPanner() : null; o.frequency.value = f; g.gain.value = v; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + d); o.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(actx.destination); } else g.connect(actx.destination); o.start(); o.stop(actx.currentTime + d); } catch {} };
   let lastGround = 0, aheadSlow = 1, prevEnv = null, crowdT = 0, lastEmpathy = 0, lastCrowdMsg = 0; const repliedTo = new Map(), SPACE_M = { close: 0.9, normal: 1.5, wide: 2.4 };
@@ -375,7 +380,7 @@ function start(name) {
     lastTaste = performance.now();
     const f = FLAVORS[sp.flavor];
     $('hud').textContent = `${sp.name}: ${f.text}`;
-    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; react(FLAVOR_REACTION[sp.flavor], 2200, true); buzz('taste'); body.eat(sp.flavor); zap();
+    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; react(FLAVOR_REACTION[sp.flavor], 2200, true); buzz('taste'); body.eat(sp.flavor); learn.taste(sp.flavor); noteEvent('food', sp.name); zap();
     if (f.energy) vitals.stamina = Math.min(100, vitals.stamina + f.energy);
     tone(520, 0.12, 0.05, 0);
   };
@@ -389,7 +394,7 @@ function start(name) {
   }
   addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
   const chat = $('chat'); chat.style.display = 'block';
-  chat.onkeydown = e => { if (e.key === 'Enter' && chat.value) { const cm = moodFromChat(chat.value); if (cm) { chatMood = cm; chatMoodUntil = performance.now() + 8000; } ws.send(JSON.stringify({ t: 'chat', text: chat.value })); $('hud').textContent = `${name}: ${chat.value}`; chat.value = ''; chat.blur(); } };
+  chat.onkeydown = e => { if (e.key === 'Enter' && chat.value) { const cm = moodFromChat(chat.value); if (cm) { chatMood = cm; chatMoodUntil = performance.now() + 8000; } const lv = voiceLevel(loudNow), vt = voice.tone(lv); voice.say(lv); tone(vt.f, 0.12, vt.v, 0); const said = lv === 'shout' ? chat.value.toUpperCase() : chat.value; ws.send(JSON.stringify({ t: 'chat', text: said })); $('hud').textContent = `${name}${lv === 'normal' ? '' : lv === 'raised' ? ' (raising your voice over the noise)' : ' (shouting over the noise)'}${voice.hoarse ? ' (hoarse)' : ''}: ${said}`; chat.value = ''; chat.blur(); } };
   const joy = { x: 0, y: 0 };
   if ('ontouchstart' in window) {
     const j = $('joy'), n = $('nub'); j.style.display = 'block';
@@ -405,7 +410,6 @@ function start(name) {
   addEventListener('pointerup', () => dragging = false);
   addEventListener('pointermove', e => { if (dragging) { camYaw -= (e.clientX - lastX) * 0.006; lastX = e.clientX; } });
   cv.addEventListener('wheel', e => { camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.01, 4, 16); });
-  window.__vf = { get me() { return me; }, taste, get rx() { return [rxName, rxUntil]; } };
   let loudNow = 0, load = 0, focus = 'focused', speedNow = 0, slopeNow = 0, mudNow = false, stab = 1, lite = 0, camBase = 0;
   const gov = new QualityGovernor(dev.lowEnd ? 1 : 0), sendEvery = dev.slowNet ? 0.15 : 0.05;
   const applyQuality = q => { renderer.setPixelRatio(q >= 1 ? 1 : Math.min(devicePixelRatio, 2)); sun.castShadow = q < 1; if (q >= 2) scene.fog.far = 90; lite = q; };
@@ -434,7 +438,7 @@ function start(name) {
       const load = carried ? Math.max(0.5, 1 - carried.userData.w / (stats.carryKg * 2.4)) : 1;
       const target0 = (meHurt ? 0.5 : 1) * stats.walk * (sprinting ? stats.sprintMul : 1) * Math.sqrt(Math.max(me.userData.top, 1.4) / 2) * Math.min(len, 1) * load * pushF * (vitals.stumble > 0 ? 0.4 : 1) * (vitals.winded ? 0.75 : 1);
       slopeNow = slopeAlong(me.position.x, me.position.z, wx, wz); mudNow = onMud(me.position.x, me.position.z);
-      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1) * aheadSlow * body.speedMul;
+      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1) * aheadSlow * body.speedMul * paceMul * predSlow;
       const grip = weather === 'rain' || mudNow ? 3 + stats.grip * 0.5 : 12; // wet ground: slower to start and stop
       speedNow += (target - speedNow) * Math.min(1, dt * grip);
       const px = me.position.x, pz = me.position.z;
@@ -442,7 +446,7 @@ function start(name) {
       me.position.z = THREE.MathUtils.clamp(pz + wz * speedNow * dt, -75, 75);
       const bx = me.position.x, bz = me.position.z;
       collide(me.position);
-      if (sprinting && Math.hypot(me.position.x - bx, me.position.z - bz) > 0.1 && Math.random() < tripChance(stats) * dt * 10 && vitals.trip()) { speedNow *= 0.3; body.hurt(0.2); buzz('stumble'); $('hud').textContent = 'You stumbled over an obstacle!'; }
+      if (sprinting && Math.hypot(me.position.x - bx, me.position.z - bz) > 0.1 && Math.random() < tripChance(stats) * dt * 10 && vitals.trip()) { speedNow *= 0.3; body.hurt(0.2); noteEvent('slip'); buzz('stumble'); $('hud').textContent = 'You stumbled over an obstacle!'; }
       turn(me, Math.atan2(wx, wz), 0.25);
     } else { speedNow = 0; slopeNow = 0; mudNow = onMud(me.position.x, me.position.z); }
 
@@ -469,7 +473,7 @@ function start(name) {
     stab = Math.max(0, stab - vibNow * 0.2);
     { let dy = me.rotation.y - lastYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); turnRate += (dy / Math.max(dt, 1e-3) - turnRate) * 0.2; lastYaw = me.rotation.y; }
     senseDizzy = vest.update(dt, me.rotation.y, camYaw, grounded); stab = Math.max(0, stab - vest.penalty);
-    if (moving && !frozen && grounded && Math.random() < stumbleRate(stab) * dt && vitals.trip()) { speedNow *= 0.3; body.hurt(0.2); buzz('stumble'); $('hud').textContent = mudNow ? 'You slipped in the mud!' : 'You lost your footing on the slope!'; }
+    if (moving && !frozen && grounded && Math.random() < stumbleRate(stab) * (1 - 0.5 * learn.level('slip')) * dt && vitals.trip()) { speedNow *= 0.3; body.hurt(0.2); noteEvent('slip'); buzz('stumble'); $('hud').textContent = mudNow ? 'You slipped in the mud!' : 'You lost your footing on the slope!'; }
     const q = gov.sample(dt); if (q != null) applyQuality(q);
     { const gp = pollGamepad(); if (gp) { joy.x = gp.x; joy.y = gp.y; camYaw -= gp.cam * dt * 2.5; keys.shift = gp.sprint; if (gp.jump) jump(); if (gp.grab) toggleCarry(); if (gp.wave) doEmote('wave'); if (gp.emotes) doEmote('cheer'); } }
     if (moving && !frozen) meEmote = null;
@@ -482,9 +486,10 @@ function start(name) {
       if (nd < 4 && !moving && !frozen && now - (greeted.get(nearId) || -1e9) > 60000) { greeted.set(nearId, now); turn(me, Math.atan2(g.position.x - me.position.x, g.position.z - me.position.z), 0.6); doEmote(avatar.culture); } }
     else if (idleFor > 15) lk = Math.sin(t * 0.7) * 0.8;
     { let gl = 0; npcs.forEach(o => { if (!gl && o.g.userData.role !== 'ambulance') gl = glanceBehind(me.position.x, me.position.z, me.rotation.y, o.g.position.x, o.g.position.z); }); if (gl && !moving) lk = gl; }
+    if (lkListen && now < lkListen.until) lk = THREE.MathUtils.clamp(Math.atan2(Math.sin(lkListen.a), Math.cos(lkListen.a)), -1.2, 1.2);
     if (senseDizzy > 0.4) lk += Math.sin(t * 5) * senseDizzy * 0.5;
     lkS += (lk - lkS) * Math.min(1, dt * 6);
-    { const sp = nearestSpot(me.position.x, me.position.z, 1.6), st = surfaceTouch(sp); if (st && now > burnUntil) { burnUntil = now + 3000; $('hud').textContent = st.text; if (st.pain) { speedNow *= 0.2; vitals.stamina = Math.max(0, vitals.stamina - 5); react('burn', 1400); body.hurt(0.35); buzz('burn'); tone(900, 0.15, 0.06, 0); } } }
+    { const sp = nearestSpot(me.position.x, me.position.z, 1.6), st = surfaceTouch(sp); if (st && now > burnUntil) { burnUntil = now + 3000; $('hud').textContent = st.text; if (st.pain) { speedNow *= 0.2; vitals.stamina = Math.max(0, vitals.stamina - 5); react('burn', 1400); body.hurt(0.35); noteEvent('burn'); buzz('burn'); tone(900, 0.15, 0.06, 0); } } }
     if (meEmote && nearId != null && nd < 5 && !moving) turn(me, Math.atan2(others.get(nearId).position.x - me.position.x, others.get(nearId).position.z - me.position.z), 0.15);
     if (!moving && !frozen && nearId == null && idleFor > 12 && !meEmote && now - lastIdleEmote > 25000) { lastIdleEmote = now; doEmote(IDLE_EMOTE[avatar.interest] || 'stretch'); }
 
@@ -530,7 +535,7 @@ function start(name) {
       const mePt = { x: me.position.x, z: me.position.z, ry: me.rotation.y };
       const people = [];
       others.forEach((g, id) => { const u = g.userData, o2 = u.s || {}; const vx = (u.tx - (u.px ?? u.tx)) / 0.25, vz = (u.tz - (u.pz ?? u.tz)) / 0.25; u.px = u.tx; u.pz = u.tz; people.push({ id: 'p' + id, name: u.name, x: g.position.x, z: g.position.z, ry: g.rotation.y, mood: o2.m || 'neutral', vx, vz, pushing: !!o2.pu, sprint: !!o2.sp, carrying: [...crates.values()].some(c => c.userData.by === id), emote: u.emote && performance.now() - u.emote.at < 2500 ? u.emote.e : null, at: u.emote && u.emote.at }); });
-      npcs.forEach((o, id) => { if (o.g.userData.role === 'ambulance') return; people.push({ id: 'n' + id, name: o.name || 'Staff', x: o.g.position.x, z: o.g.position.z, ry: o.g.rotation.y, mood: o.mood || 'neutral', label: o.intent, emote: o.emote && performance.now() - o.emote.at < 2500 ? o.emote.e : null, at: o.emote && o.emote.at }); });
+      npcs.forEach((o, id) => { if (o.g.userData.role === 'ambulance') return; const nvx = (o.g.position.x - (o.px ?? o.g.position.x)) / 0.25, nvz = (o.g.position.z - (o.pz ?? o.g.position.z)) / 0.25; o.px = o.g.position.x; o.pz = o.g.position.z; people.push({ vx: nvx, vz: nvz, id: 'n' + id, name: o.name || 'Staff', x: o.g.position.x, z: o.g.position.z, ry: o.g.rotation.y, mood: o.mood || 'neutral', label: o.intent, emote: o.emote && performance.now() - o.emote.at < 2500 ? o.emote.e : null, at: o.emote && o.emote.at }); });
       // emotional: catch the mood of those nearby and notice distress
       const emo = emotionAround(mePt.x, mePt.z, people);
       if (emo) { if (!meHurt && !meDown) { chatMood = emo.mood; chatMoodUntil = now + 2500; } if (emo.concerned && now - lastEmpathy > 20000) { lastEmpathy = now; $('hud').textContent = `${emo.concerned.who} looks ${emo.concerned.mood === 'sad' ? 'upset or hurt' : 'worried'}. You feel concerned.`; } }
@@ -548,6 +553,19 @@ function start(name) {
       if (ec) { $('hud').textContent = ec.text; if (ec.mood) { chatMood = ec.mood; chatMoodUntil = now + 3500; } if (ec.react) react(ec.react, 1500); }
       const ga = moving ? groundAhead(mePt.x, mePt.z, mePt.ry, onMud, heightAt) : null;
       aheadSlow = ga ? ga.slow : 1; if (ga && now - lastGround > 12000) { lastGround = now; $('hud').textContent = ga.text; }
+      // ---- memory / learning / prediction / adaptation ----
+      voice.update(0.25); recentSlips = decaySlips(recentSlips, 0.25);
+      const vel = lastPos ? { x: (me.position.x - lastPos.x) / 0.25, z: (me.position.z - lastPos.z) / 0.25 } : { x: 0, z: 0 }; lastPos = { x: me.position.x, z: me.position.z };
+      const rc = mem.recall(me.position.x, me.position.z);
+      if (rc && now - (lastRecall.get(rc) || -1e9) > 30000 && now > lastSoundMsg) { lastRecall.set(rc, now); const rt = recallText(rc); if (rt) { $('hud').textContent = rt; if (BAD.includes(rc.kind)) { chatMood = 'nervous'; chatMoodUntil = now + 2500; } } }
+      const pc = moving ? predictContact(mePt, vel, people) : null;
+      predSlow = pc ? 0.8 : 1;
+      if (pc && now - lastPredict > 6000) { lastPredict = now; $('hud').textContent = `${pc.who} will cross your path in ${pc.t.toFixed(1)}s. You ease off.`; }
+      const fc = forecast({ trend, weather }); if (fc && fc !== lastForecast && now > lastSoundMsg) { $('hud').textContent = fc; } lastForecast = fc;
+      const sw = sprinting ? secondsToWinded(vitals.stamina, stats.drain * body.drainMul) : Infinity;
+      if (sw < 4 && now - lastWinded > 15000) { lastWinded = now; $('hud').textContent = 'You will be out of breath in a few seconds. Slow down.'; }
+      paceMul = adaptPace({ slipSkill: learn.level('slip'), recentSlips, rain: weather === 'rain', night, pain: body.pain, crowd: people.filter(p => Math.hypot(p.x - mePt.x, p.z - mePt.z) < 6).length });
+      const mi = $('mind'); if (mi) mi.textContent = `🧠 ${strategyOf(paceMul)} · 📍 ${mem.places.length} places · 🎓 sure-footed ${Math.round(learn.level('slip') * 100)}%${learn.favourite ? ' · ❤ likes ' + learn.favourite : ''} · 🗣 ${voice.hoarse ? 'hoarse' : voiceLevel(loudNow)}${pc ? ' · 🔮 ' + pc.who + ' ' + pc.t.toFixed(1) + 's' : sw < 8 ? ' · 🔮 winded in ' + Math.ceil(sw) + 's' : ''}`;
       const sirenNow = !!(hr.loud && hr.loud.kind === 'siren' && hr.loud.v > 0.3);
       const pr = pickReaction({ loud: hr.total, siren: sirenNow && !sirenHeard, smell: sm, rain: weather === 'rain', night, moving });
       if (sirenNow && !sirenHeard) buzz('siren');

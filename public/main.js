@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateAvatar, EMOTES } from './avatar.js';
 import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE, balanceFor, stumbleRate, slopeSpeed, cognitiveLoad, focusState } from './playerstate.js';
 import { HILLS, MUD, heightAt, slopeAlong, onMud } from './terrain.js';
+import { SPOTS, smellAt, smellReaction, FLAVORS, nearestSpot, touchOf, surfaceTouch, hearing, panOf, visionRange, canSee, glanceBehind, Vestibular } from './senses.js';
 import { detectDevice, pollGamepad, QualityGovernor } from './device.js';
 
 const dev = detectDevice();
@@ -122,6 +123,14 @@ function start(name) {
     h.position.set(Math.cos(a) * 4, 1.6, Math.sin(a) * 4); h.rotation.y = -a; h.castShadow = true; carousel.add(h); horses.push(h);
   }
   carousel.position.set(30, 0.2, -20); scene.add(carousel);
+  const spotColors = { popcorn: '#e63946', candy: '#ff7eb6', lemonade: '#ffd23f', grill: '#444', icecart: '#9bd4ff' };
+  for (const sp of SPOTS) {
+    const b = new THREE.Group();
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.1, 1.2), new THREE.MeshStandardMaterial({ color: spotColors[sp.id], roughness: 0.6 })); base.position.y = 0.55; base.castShadow = true; b.add(base);
+    const roof = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 1.6), new THREE.MeshStandardMaterial({ color: '#fff' })); roof.position.y = 2.1; b.add(roof);
+    for (const px of [-0.95, 0.95]) { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 6), new THREE.MeshStandardMaterial({ color: '#888' })); p.position.set(px, 1.55, 0.55); b.add(p); }
+    b.position.set(sp.x, 0, sp.z); scene.add(b);
+  }
 
   // Booths with bunting
   for (let i = 0; i < 6; i++) {
@@ -222,7 +231,7 @@ function start(name) {
     if (npcs.has(r.id)) return;
     const g = r.role === 'ambulance' ? buildAmbulance() : buildAvatar({ ...r.look, cgi: r.id + 1 }); const tg = nameTag(r.name); if (r.role === 'ambulance') tg.position.y = 3.4; g.add(tg); const b = bubble(); if (r.role === 'ambulance') b.position.y = 4; g.add(b);
     Object.assign(g.userData, { tx: 0, tz: 0, try: 0, moving: 0, role: r.role, siren: 0 });
-    scene.add(g); npcs.set(r.id, { g, b, init: false });
+    scene.add(g); npcs.set(r.id, { g, b, tag: tg, init: false });
   };
   const setDown = (g, d) => { g.rotation.x = d ? -Math.PI / 2 : 0; g.userData.down = !!d; };
   const sky = { clear: new THREE.Color('#87ceeb'), rain: new THREE.Color('#6b7785') };
@@ -314,7 +323,7 @@ function start(name) {
     else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, ty: m.y || 0, tz: m.z, try: m.ry, s: m.s }); }
     else if (m.t === 'emote') { const g = others.get(m.id); if (g) { g.userData.emote = { e: m.e, at: performance.now() }; const me2 = emoteState(meEmote, performance.now()); if (m.e === 'handshake' && me2.emote === 'handshake' && Math.hypot(g.position.x - me.position.x, g.position.z - me.position.z) < 3.5) $('hud').textContent = `🤝 You shook hands with ${g.userData.name}!`; } }
     else if (m.t === 'crate') { const c = crates.get(m.id); if (c && c.userData.by == null) { c.userData.x = m.x; c.userData.z = m.z; c.position.set(m.x, c.userData.sz / 2, m.z); } }
-    else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) $('hud').textContent = `You lifted a ${m.w} kg crate. Press G to put it down.`; } } }
+    else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) { const ft = touchOf(m.w, temp0()); $('hud').textContent = `You lifted a ${m.w} kg crate. ${ft.text} ${dev.kind === 'touch' ? 'Tap 📦' : 'Press G'} to put it down.`; tone(180, 0.08, 0.05, 0); } } } }
     else if (m.t === 'note') $('hud').textContent = m.text;
     else if (m.t === 'bonus') { xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
     else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
@@ -330,6 +339,7 @@ function start(name) {
     if (k === 'm') openCustom();
     lastInput = performance.now();
     if (k === 'g') toggleCarry();
+    if (k === 't') taste();
     if (k === 'x') $('emoBtn').click();
     if (/^[0-9]$/.test(k) && EMOTE_KEYS[(+k + 9) % 10]) doEmote(EMOTE_KEYS[(+k + 9) % 10]);
     if (k === ' ') { e.preventDefault(); jump(); }
@@ -344,13 +354,29 @@ function start(name) {
   const shout = () => { if (meDown) return; act('shout'); $('hud').textContent = 'You shouted! Security may come over.'; };
   const faint = () => { if (meDown) return; act('faint'); meDown = true; setDown(me, true); $('hud').textContent = 'You fainted. Wait for a medic.'; };
   const callMaint = () => { act('maint'); $('hud').textContent = 'You called maintenance. Help is on the way.'; };
+  // ---- senses: taste, touch, audio ----
+  const temp0 = () => feelTemp(clockMin, weather) || 'mild';
+  let actx = null, lastTaste = 0, burnUntil = 0, lastSmellMsg = '', lastSoundMsg = 0, vest = new Vestibular(), senseDizzy = 0;
+  const tone = (f, d, v, pan) => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(), p = actx.createStereoPanner ? actx.createStereoPanner() : null; o.frequency.value = f; g.gain.value = v; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + d); o.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(actx.destination); } else g.connect(actx.destination); o.start(); o.stop(actx.currentTime + d); } catch {} };
+  const taste = () => {
+    if (meDown) return;
+    const sp = nearestSpot(me.position.x, me.position.z, 3.2);
+    if (!sp || !sp.flavor) { $('hud').textContent = 'Nothing to taste here. Find a food stand!'; return; }
+    if (performance.now() - lastTaste < 4000) { $('hud').textContent = 'Savour it a moment first.'; return; }
+    lastTaste = performance.now();
+    const f = FLAVORS[sp.flavor];
+    $('hud').textContent = `${sp.name}: ${f.text}`;
+    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; doEmote(f.emote);
+    if (f.energy) vitals.stamina = Math.min(100, vitals.stamina + f.energy);
+    tone(520, 0.12, 0.05, 0);
+  };
   const dropLitter = () => { act('litter'); $('hud').textContent = 'You dropped litter. The cleaners will pick it up (please use the bins next time!).'; };
   const critical = () => { if (meDown) return; act('critical'); meDown = true; setDown(me, true); $('hud').textContent = 'Severe emergency! Medics and an ambulance are coming.'; };
   const hurt = () => { if (meDown || meHurt) return; act('hurt'); meHurt = true; $('hud').textContent = 'You are injured. Walk to a first aid station or wait for a medic.'; };
   if ('ontouchstart' in window) {
     $('acts').style.display = 'flex';
     const tap = (id, f) => $(id).addEventListener('touchstart', e => { e.preventDefault(); f(); }, { passive: false });
-    tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bGrab', toggleCarry); tap('bEdit', openCustom);
+    tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bGrab', toggleCarry); tap('bTaste', taste); tap('bEdit', openCustom);
   }
   addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
   const chat = $('chat'); chat.style.display = 'block';
@@ -370,7 +396,7 @@ function start(name) {
   addEventListener('pointerup', () => dragging = false);
   addEventListener('pointermove', e => { if (dragging) { camYaw -= (e.clientX - lastX) * 0.006; lastX = e.clientX; } });
   cv.addEventListener('wheel', e => { camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.01, 4, 16); });
-  let load = 0, focus = 'focused', speedNow = 0, slopeNow = 0, mudNow = false, stab = 1, lite = 0, camBase = 0;
+  let loudNow = 0, load = 0, focus = 'focused', speedNow = 0, slopeNow = 0, mudNow = false, stab = 1, lite = 0, camBase = 0;
   const gov = new QualityGovernor(dev.lowEnd ? 1 : 0), sendEvery = dev.slowNet ? 0.15 : 0.05;
   const applyQuality = q => { renderer.setPixelRatio(q >= 1 ? 1 : Math.min(devicePixelRatio, 2)); sun.castShadow = q < 1; if (q >= 2) scene.fog.far = 90; lite = q; };
   if (dev.lowEnd) applyQuality(1);
@@ -430,6 +456,7 @@ function start(name) {
     vy -= 18 * dt; me.position.y = Math.max(floorY, me.position.y + vy * dt); if (me.position.y === floorY) vy = 0;
     const grounded = me.position.y - floorY < 0.05;
     stab = balanceFor({ slope: slopeNow, wet: weather === 'rain', mud: mudNow, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, hurt: meHurt, tired: vitals.tired ? 1 : 0, sprint: sprinting, agility: avatar.agility, level: avatar.level });
+    senseDizzy = vest.update(dt, me.rotation.y, camYaw, grounded); stab = Math.max(0, stab - vest.penalty);
     if (moving && !frozen && grounded && Math.random() < stumbleRate(stab) * dt && vitals.trip()) { speedNow *= 0.3; $('hud').textContent = mudNow ? 'You slipped in the mud!' : 'You lost your footing on the slope!'; }
     const q = gov.sample(dt); if (q != null) applyQuality(q);
     { const gp = pollGamepad(); if (gp) { joy.x = gp.x; joy.y = gp.y; camYaw -= gp.cam * dt * 2.5; keys.shift = gp.sprint; if (gp.jump) jump(); if (gp.grab) toggleCarry(); if (gp.wave) doEmote('wave'); if (gp.emotes) doEmote('cheer'); } }
@@ -442,7 +469,10 @@ function start(name) {
     if (nearId != null) { const g = others.get(nearId); let ang = Math.atan2(g.position.x - me.position.x, g.position.z - me.position.z) - me.rotation.y; ang = Math.atan2(Math.sin(ang), Math.cos(ang)); lk = THREE.MathUtils.clamp(ang, -1.2, 1.2);
       if (nd < 4 && !moving && !frozen && now - (greeted.get(nearId) || -1e9) > 60000) { greeted.set(nearId, now); turn(me, Math.atan2(g.position.x - me.position.x, g.position.z - me.position.z), 0.6); doEmote(avatar.culture); } }
     else if (idleFor > 15) lk = Math.sin(t * 0.7) * 0.8;
+    { let gl = 0; npcs.forEach(o => { if (!gl && o.g.userData.role !== 'ambulance') gl = glanceBehind(me.position.x, me.position.z, me.rotation.y, o.g.position.x, o.g.position.z); }); if (gl && !moving) lk = gl; }
+    if (senseDizzy > 0.4) lk += Math.sin(t * 5) * senseDizzy * 0.5;
     lkS += (lk - lkS) * Math.min(1, dt * 6);
+    { const sp = nearestSpot(me.position.x, me.position.z, 1.6), st = surfaceTouch(sp); if (st && now > burnUntil) { burnUntil = now + 3000; $('hud').textContent = st.text; if (st.pain) { speedNow *= 0.2; vitals.stamina = Math.max(0, vitals.stamina - 5); doEmote('shrug'); tone(900, 0.15, 0.06, 0); } } }
     if (meEmote && nearId != null && nd < 5 && !moving) turn(me, Math.atan2(others.get(nearId).position.x - me.position.x, others.get(nearId).position.z - me.position.z), 0.15);
     if (!moving && !frozen && nearId == null && idleFor > 12 && !meEmote && now - lastIdleEmote > 25000) { lastIdleEmote = now; doEmote(IDLE_EMOTE[avatar.interest] || 'stretch'); }
 
@@ -461,11 +491,22 @@ function start(name) {
       const night = clockMin < 360 || clockMin > 1200;
       load = cognitiveLoad({ crowd: others.size + [...npcs.values()].filter(o => Math.hypot(o.g.position.x - me.position.x, o.g.position.z - me.position.z) < 10).length, rain: weather === 'rain', night, hurt: meHurt, tired: vitals.tired ? 1 : 0, hazards });
       focus = focusState({ idleFor, chatting: document.activeElement === chat, load });
+      const litter = []; litterMeshes.forEach(l => litter.push({ x: l.position.x, z: l.position.z, spill: l.geometry === spillGeo }));
+      const sm = smellAt(me.position.x, me.position.z, litter), sr = smellReaction(sm);
+      if (sm && sm.strength > 0.35 && sm.name !== lastSmellMsg && now > lastSoundMsg) { lastSmellMsg = sm.name; $('hud').textContent = sm.pleasant >= 0.7 ? `You smell ${sm.name}.${sr ? ' Mmm.' : ''}` : sm.pleasant < 0.3 ? `Ew, ${sm.name}!` : `You smell ${sm.name}.`; if (sr && sm.pleasant < 0.3) { chatMood = sr.mood; chatMoodUntil = now + 3000; } }
+      else if (!sm || sm.strength < 0.2) lastSmellMsg = '';
+      const srcs = []; if (!rideFault[1]) srcs.push({ x: 30, z: -20, level: 0.5, kind: 'carousel music' }); npcs.forEach(o => { if (o.g.userData.role === 'ambulance' && o.g.userData.siren) srcs.push({ x: o.g.position.x, z: o.g.position.z, level: 1, kind: 'siren' }); });
+      const hr = hearing(me.position.x, me.position.z, srcs, { rain: weather === 'rain' });
+      if (hr.loud && hr.loud.kind === 'siren') { tone(hr.loud.v > 0.5 ? 760 : 620, 0.2, Math.min(0.06, hr.loud.v * 0.1), panOf(me.position.x, me.position.z, me.rotation.y, hr.loud.x, hr.loud.z)); if (now > lastSoundMsg) { lastSoundMsg = now + 12000; $('hud').textContent = `You hear a siren ${panOf(me.position.x, me.position.z, me.rotation.y, hr.loud.x, hr.loud.z) < 0 ? 'to your left' : 'to your right'}.`; } }
+      loudNow = hr.total;
+      const vd = new THREE.Vector3(); camera.getWorldDirection(vd); const viewYaw = Math.atan2(vd.x, vd.z);
+      const range = visionRange({ night, rain: weather === 'rain' });
+      npcs.forEach(o => { if (o.tag) o.tag.visible = canSee(me.position.x, me.position.z, viewYaw, o.g.position.x, o.g.position.z, range, 3.4); });
       const calm = focus === 'overloaded' || dev.small;
       $('radio').style.opacity = calm ? 0.25 : 1; $('park').style.opacity = calm ? 0.5 : 1;
       const bal = stab > 0.75 ? 'steady' : stab > 0.5 ? 'wobbly' : 'unstable';
       const label = { focused: 'Focused', distracted: 'Distracted', chatting: 'Chatting', overloaded: 'Overloaded' }[focus];
-      $('vitals').textContent = `${LEVELS[avatar.level]}${stars(avatar.level)} · Stamina ${'█'.repeat(Math.round(vitals.stamina / 10))}${'░'.repeat(10 - Math.round(vitals.stamina / 10))} · ${mood} · ${label} · Balance ${bal}${mudNow ? ' (mud)' : Math.abs(slopeNow) > 0.15 ? (slopeNow > 0 ? ' (uphill)' : ' (downhill)') : ''}${temp ? ' · ' + (temp === 'cold' ? '🥶 cold' : '🥵 hot') : ''}${meHurt ? ' · 🩹 injured' : ''}${lite ? ' · Lite mode' : ''}`;
+      $('vitals').textContent = `${LEVELS[avatar.level]}${stars(avatar.level)} · Stamina ${'█'.repeat(Math.round(vitals.stamina / 10))}${'░'.repeat(10 - Math.round(vitals.stamina / 10))} · ${mood} · ${label} · Balance ${bal}${senseDizzy > 0.3 ? ' · 😵‍💫 dizzy' : ''}${loudNow > 0.6 ? ' · 🔊 loud' : ''}${mudNow ? ' (mud)' : Math.abs(slopeNow) > 0.15 ? (slopeNow > 0 ? ' (uphill)' : ' (downhill)') : ''}${temp ? ' · ' + (temp === 'cold' ? '🥶 cold' : '🥵 hot') : ''}${meHurt ? ' · 🩹 injured' : ''}${lite ? ' · Lite mode' : ''}`;
     }
     crates.forEach(m => { if (m.parent === scene) m.position.y = heightAt(m.position.x, m.position.z) + m.userData.sz / 2; });
     if (t - sent > sendEvery && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, y: me.position.y, z: me.position.z, ry: me.rotation.y, s: { m: mood, tr: vitals.tired, tp: temp, pu: pushing, sp: sprinting, st: vitals.stumble, lk: lkS, fc: focus } })); }

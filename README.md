@@ -73,3 +73,12 @@ A `🧠 …` line (bottom-left) summarises strategy, memories, learned skill, vo
 - **Learning:** each slip makes you more sure-footed (fewer stumbles); repeated tastes reveal a favourite flavour.
 - **Predictive:** warns when someone will cross your path, when you will run out of breath, and when falling pressure means rain.
 - **Adaptive:** your pace becomes cautious, careful or confident based on recent slips, weather, pain and crowds.
+
+## Drive feedback
+A `🎯 …` line (bottom-left) shows your goal, points, conscience, strongest drive and what you are attending to. Progress is saved in `localStorage`.
+- **Motivation:** hunger, thirst, tiredness, loneliness and curiosity set your top drive; short goals (taste 3 foods, explore 8 areas, visit both rides, help someone who is down) pay points. NPC motives show beside their 💭 intent.
+- **Reward:** goals, discoveries, bonuses and staying with a fallen person earn points (streaks add more) with a chime and a happy mood.
+- **Punishment / morals:** littering or sprinting through a crowd costs points and conscience and makes the avatar feel guilty; a fallen person nearby prompts you to help.
+- **Curiosity:** new areas and points of interest are rewarded, the nearest undiscovered one is shown (🔍) and the avatar glances toward it when idle.
+- **Attention:** carrying a crate, chasing a goal or being overloaded narrows which name tags are shown.
+- **Empathy / social:** sad or fallen people prompt a nudge to wave or help.

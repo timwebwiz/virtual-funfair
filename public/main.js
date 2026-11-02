@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { Voice, voiceLevel, intelligibility, heardAs, Memory, recallText, BAD, Learning, predictContact, secondsToWinded, forecast, adaptPace, strategyOf, decaySlips } from './mind.js';
+import { topDrive, DRIVE_TEXT, motiveOf, Goals, Reinforcement, moralCheck, helping, Curiosity, cellOf, curiousGlance, attention, empathicNudge } from './drive.js';
 import { Body, climate, easePressure, pressureTrend, vibrationAt, fieldAt, compass, limbs, bodyState, bodyNotice } from './body.js';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateAvatar, EMOTES } from './avatar.js';
 import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE, balanceFor, stumbleRate, slopeSpeed, cognitiveLoad, focusState } from './playerstate.js';
@@ -328,7 +329,7 @@ function start(name) {
     else if (m.t === 'crate') { const c = crates.get(m.id); if (c && c.userData.by == null) { c.userData.x = m.x; c.userData.z = m.z; c.position.set(m.x, c.userData.sz / 2, m.z); } }
     else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) { const ft = touchOf(m.w, temp0()); $('hud').textContent = `You lifted a ${m.w} kg crate. ${ft.text} ${dev.kind === 'touch' ? 'Tap 📦' : 'Press G'} to put it down.`; tone(180, 0.08, 0.05, 0); buzz('lift', m.w); zap(); } } } }
     else if (m.t === 'note') $('hud').textContent = m.text;
-    else if (m.t === 'bonus') { xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
+    else if (m.t === 'bonus') { rein.reward(10, performance.now()); saveDrive(); xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
     else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
     else if (m.t === 'chat') { if (m.id === myId) $('hud').textContent = `${name}: ${m.text}`; else { const og = others.get(m.id), d = og ? Math.hypot(og.position.x - me.position.x, og.position.z - me.position.z) : 10, lvl = m.text === m.text.toUpperCase() && /[A-Z]/.test(m.text) ? 'shout' : 'normal', q = intelligibility(d, loudNow, lvl), h = heardAs(m.text, q), who = (og && og.userData.name) || 'Player ' + m.id; $('hud').textContent = h === null ? `${who} says something, but you cannot make it out.` : `${who}${q < 0.5 ? ' (hard to hear)' : ''}: ${h}`; if (og && h !== null) { const a = Math.atan2(og.position.x - me.position.x, og.position.z - me.position.z); lkListen = { a: a - me.rotation.y, until: performance.now() + 2500 }; } } }
   };
@@ -360,6 +361,15 @@ function start(name) {
   // ---- senses: taste, touch, audio ----
   const temp0 = () => feelTemp(clockMin, weather) || 'mild';
   const body = new Body(), voice = new Voice();
+  let ds = {}; try { ds = JSON.parse(localStorage.getItem('vf-drive') || '{}'); } catch {}
+  const goals = new Goals(ds.goals), rein = new Reinforcement(ds.rein), cur = new Curiosity(ds.seen), poiSeen = new Set(ds.poi || []);
+  const POIS = [...SPOTS.map(p => ({ id: p.id, name: p.name, x: p.x, z: p.z, r: 5 })), { id: 'ferris', name: 'ferris wheel', x: -30, z: -30, r: 14 }, { id: 'carousel', name: 'carousel', x: 30, z: -20, r: 10 }];
+  const helpedSet = new Map(), clamp01 = v => Math.min(1, Math.max(0, v));
+  let lonelyT = 0, lastDriveMsg = 0, lastMoral = 0, lastDrive = '', helpT = 0, lastNudge = 0, att = { radius: 40, on: 'the park' }, curTarget = null;
+  const saveDrive = () => { try { localStorage.setItem('vf-drive', JSON.stringify({ goals, rein, seen: cur.toJSON(), poi: [...poiSeen] })); } catch {} };
+  const earn = (pts, text) => { const g = rein.reward(pts, performance.now()); chatMood = 'happy'; chatMoodUntil = performance.now() + 3000; tone(880, 0.1, 0.04, 0); setTimeout(() => tone(1175, 0.15, 0.04, 0), 110); buzz('taste'); $('hud').textContent = `${text} +${g} points${rein.streak > 1 ? ` (streak x${rein.streak})` : ''}`; saveDrive(); };
+  const goalStep = (id, key) => { const g = goals.progress(id, key); if (g) { earn(g.pts, `Goal complete: ${g.text}!`); doEmote('cheer'); return true; } saveDrive(); return false; };
+  const guilt = (pts, text) => { rein.punish(pts); chatMood = 'sad'; chatMoodUntil = performance.now() + 3500; tone(150, 0.25, 0.05, 0); $('hud').textContent = `${text} -${pts} points`; saveDrive(); };
   let saved = {}; try { saved = JSON.parse(localStorage.getItem('vf-mind') || '{}'); } catch {}
   const mem = new Memory(saved.places || []), learn = new Learning(saved.counts || {}, saved.flavors || {});
   let lkListen = null, recentSlips = 0, paceMul = 1, lastRecall = new Map(), lastPredict = 0, lastForecast = '', lastWinded = 0, predSlow = 1, lastPos = null;
@@ -380,11 +390,11 @@ function start(name) {
     lastTaste = performance.now();
     const f = FLAVORS[sp.flavor];
     $('hud').textContent = `${sp.name}: ${f.text}`;
-    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; react(FLAVOR_REACTION[sp.flavor], 2200, true); buzz('taste'); body.eat(sp.flavor); learn.taste(sp.flavor); noteEvent('food', sp.name); zap();
+    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; react(FLAVOR_REACTION[sp.flavor], 2200, true); buzz('taste'); body.eat(sp.flavor); learn.taste(sp.flavor); goalStep('taste', sp.flavor); noteEvent('food', sp.name); zap();
     if (f.energy) vitals.stamina = Math.min(100, vitals.stamina + f.energy);
     tone(520, 0.12, 0.05, 0);
   };
-  const dropLitter = () => { act('litter'); $('hud').textContent = 'You dropped litter. The cleaners will pick it up (please use the bins next time!).'; };
+  const dropLitter = () => { act('litter'); guilt(5, 'You dropped litter. Someone has to clean that up: please use the bins.'); };
   const critical = () => { if (meDown) return; act('critical'); meDown = true; setDown(me, true); $('hud').textContent = 'Severe emergency! Medics and an ambulance are coming.'; };
   const hurt = () => { if (meDown || meHurt) return; act('hurt'); meHurt = true; $('hud').textContent = 'You are injured. Walk to a first aid station or wait for a medic.'; };
   if ('ontouchstart' in window) {
@@ -487,6 +497,7 @@ function start(name) {
     else if (idleFor > 15) lk = Math.sin(t * 0.7) * 0.8;
     { let gl = 0; npcs.forEach(o => { if (!gl && o.g.userData.role !== 'ambulance') gl = glanceBehind(me.position.x, me.position.z, me.rotation.y, o.g.position.x, o.g.position.z); }); if (gl && !moving) lk = gl; }
     if (lkListen && now < lkListen.until) lk = THREE.MathUtils.clamp(Math.atan2(Math.sin(lkListen.a), Math.cos(lkListen.a)), -1.2, 1.2);
+    if (nearId == null && idleFor > 4 && idleFor <= 15 && curTarget) lk = curiousGlance(me.position.x, me.position.z, me.rotation.y, curTarget);
     if (senseDizzy > 0.4) lk += Math.sin(t * 5) * senseDizzy * 0.5;
     lkS += (lk - lkS) * Math.min(1, dt * 6);
     { const sp = nearestSpot(me.position.x, me.position.z, 1.6), st = surfaceTouch(sp); if (st && now > burnUntil) { burnUntil = now + 3000; $('hud').textContent = st.text; if (st.pain) { speedNow *= 0.2; vitals.stamina = Math.max(0, vitals.stamina - 5); react('burn', 1400); body.hurt(0.35); noteEvent('burn'); buzz('burn'); tone(900, 0.15, 0.06, 0); } } }
@@ -534,8 +545,8 @@ function start(name) {
       // ---- emotional / social / cognitive / environmental feedback ----
       const mePt = { x: me.position.x, z: me.position.z, ry: me.rotation.y };
       const people = [];
-      others.forEach((g, id) => { const u = g.userData, o2 = u.s || {}; const vx = (u.tx - (u.px ?? u.tx)) / 0.25, vz = (u.tz - (u.pz ?? u.tz)) / 0.25; u.px = u.tx; u.pz = u.tz; people.push({ id: 'p' + id, name: u.name, x: g.position.x, z: g.position.z, ry: g.rotation.y, mood: o2.m || 'neutral', vx, vz, pushing: !!o2.pu, sprint: !!o2.sp, carrying: [...crates.values()].some(c => c.userData.by === id), emote: u.emote && performance.now() - u.emote.at < 2500 ? u.emote.e : null, at: u.emote && u.emote.at }); });
-      npcs.forEach((o, id) => { if (o.g.userData.role === 'ambulance') return; const nvx = (o.g.position.x - (o.px ?? o.g.position.x)) / 0.25, nvz = (o.g.position.z - (o.pz ?? o.g.position.z)) / 0.25; o.px = o.g.position.x; o.pz = o.g.position.z; people.push({ vx: nvx, vz: nvz, id: 'n' + id, name: o.name || 'Staff', x: o.g.position.x, z: o.g.position.z, ry: o.g.rotation.y, mood: o.mood || 'neutral', label: o.intent, emote: o.emote && performance.now() - o.emote.at < 2500 ? o.emote.e : null, at: o.emote && o.emote.at }); });
+      others.forEach((g, id) => { const u = g.userData, o2 = u.s || {}; const vx = (u.tx - (u.px ?? u.tx)) / 0.25, vz = (u.tz - (u.pz ?? u.tz)) / 0.25; u.px = u.tx; u.pz = u.tz; people.push({ id: 'p' + id, down: !!u.down, name: u.name, x: g.position.x, z: g.position.z, ry: g.rotation.y, mood: o2.m || 'neutral', vx, vz, pushing: !!o2.pu, sprint: !!o2.sp, carrying: [...crates.values()].some(c => c.userData.by === id), emote: u.emote && performance.now() - u.emote.at < 2500 ? u.emote.e : null, at: u.emote && u.emote.at }); });
+      npcs.forEach((o, id) => { if (o.g.userData.role === 'ambulance') return; const nvx = (o.g.position.x - (o.px ?? o.g.position.x)) / 0.25, nvz = (o.g.position.z - (o.pz ?? o.g.position.z)) / 0.25; o.px = o.g.position.x; o.pz = o.g.position.z; people.push({ vx: nvx, vz: nvz, id: 'n' + id, name: o.name || 'Staff', x: o.g.position.x, z: o.g.position.z, ry: o.g.rotation.y, mood: o.mood || 'neutral', down: o.mood === 'sad' && /someone|care|emergency/i.test(o.intent || ''), label: o.intent, role: o.g.userData.role, emote: o.emote && performance.now() - o.emote.at < 2500 ? o.emote.e : null, at: o.emote && o.emote.at }); });
       // emotional: catch the mood of those nearby and notice distress
       const emo = emotionAround(mePt.x, mePt.z, people);
       if (emo) { if (!meHurt && !meDown) { chatMood = emo.mood; chatMoodUntil = now + 2500; } if (emo.concerned && now - lastEmpathy > 20000) { lastEmpathy = now; $('hud').textContent = `${emo.concerned.who} looks ${emo.concerned.mood === 'sad' ? 'upset or hurt' : 'worried'}. You feel concerned.`; } }
@@ -546,7 +557,25 @@ function start(name) {
       if (crowdT > 3 && now - lastCrowdMsg > 15000) { lastCrowdMsg = now; chatMood = 'nervous'; chatMoodUntil = now + 4000; $('hud').textContent = 'Someone is standing very close. You feel crowded.'; }
       // cognitive: read what the nearest person seems to intend
       let near = null, nd2 = 9; for (const p of people) { const d = Math.hypot(p.x - mePt.x, p.z - mePt.z); if (d < nd2) { nd2 = d; near = p; } }
-      const it = $('intent'); if (it) { it.style.display = near && focus !== 'overloaded' ? 'block' : 'none'; if (near) it.textContent = `💭 ${near.name}: ${intentOf(mePt, near)}`; }
+      const it = $('intent'); if (it) { it.style.display = near && focus !== 'overloaded' ? 'block' : 'none'; if (near) { const il = intentOf(mePt, near), mv = motiveOf(il, near.role); it.textContent = `💭 ${near.name}: ${il}${mv ? ' (' + mv + ')' : ''}`; } }
+      // ---- motivation / reward / punishment / curiosity / attention / morals ----
+      const nowT = performance.now();
+      lonelyT = people.some(p => Math.hypot(p.x - mePt.x, p.z - mePt.z) < 10) ? 0 : lonelyT + 0.25;
+      if (cur.visit(me.position.x, me.position.z)) { rein.reward(2, nowT); if (goalStep('explore', cellOf(me.position.x, me.position.z))) lastDriveMsg = nowT; }
+      for (const p of POIS) if (!poiSeen.has(p.id) && Math.hypot(me.position.x - p.x, me.position.z - p.z) < p.r) { poiSeen.add(p.id); if (p.id === 'ferris' || p.id === 'carousel') goalStep('rides', p.id); if (!goals.active || goals.active.id !== 'rides') { rein.reward(5, nowT); $('hud').textContent = `You discovered the ${p.name}! +5 points`; } saveDrive(); }
+      curTarget = cur.target(me.position.x, me.position.z, poiSeen, POIS);
+      const fallen = people.find(p => p.down && Math.hypot(p.x - mePt.x, p.z - mePt.z) < 6) || null;
+      helpT = helping(mePt, fallen) && !moving ? helpT + 0.25 : 0;
+      if (fallen && helpT >= 1.5 && !fallen.helped) { fallen.helped = true; if (!helpedSet.has(fallen.id) || nowT - helpedSet.get(fallen.id) > 60000) { helpedSet.set(fallen.id, nowT); if (!goalStep('help', fallen.id)) earn(15, `You stayed with ${fallen.name} until help came.`); doEmote('wave'); } }
+      const mc = moralCheck({ sprinting, people, me: mePt, fallen });
+      if (mc && nowT - lastMoral > 12000) { lastMoral = nowT; if (mc.pts) guilt(mc.pts, mc.text); else if (nowT - lastNudge > 8000) { lastNudge = nowT; $('hud').textContent = mc.text; } }
+      else if (!mc && nowT - lastNudge > 25000) { const nm = near && empathicNudge(near); if (nm) { lastNudge = nowT; $('hud').textContent = nm; } }
+      const dr = topDrive({ hunger: body.hunger, thirst: body.thirst, tired: vitals.tired, lonely: clamp01(lonelyT / 90), curious: cur.level * 0.5 });
+      if (dr.drive !== lastDrive && dr.drive !== 'content' && nowT - lastDriveMsg > 20000 && nowT > lastSoundMsg) { lastDriveMsg = nowT; $('hud').textContent = DRIVE_TEXT[dr.drive]; }
+      lastDrive = dr.drive;
+      const ag = goals.active, gt = ag && ag.id === 'taste' ? curTarget : ag && ag.id === 'rides' ? POIS.filter(p => (p.id === 'ferris' || p.id === 'carousel') && !poiSeen.has(p.id)).map(p => ({ ...p, d: Math.hypot(p.x - me.position.x, p.z - me.position.z) }))[0] : null;
+      att = attention({ goalTarget: gt, carrying: !!carried, load, focus, nearest: near && near.name });
+      const dm = $('drive'); if (dm) dm.textContent = `🎯 ${ag ? `${ag.text} (${goals.count(ag.id)}/${ag.need})` : 'All goals done!'} · ⭐ ${rein.points} · 😇 ${rein.standing} · ❤ ${dr.drive}${curTarget ? ' · 🔍 ' + curTarget.name + ' ' + Math.round(curTarget.d) + 'm' : ''} · 👁 ${att.on}${att.filtered ? ' (filtering distractions)' : ''}`;
       // environmental: notice changes and the ground ahead
       const envNow = { weather, night, faults: rideFault.slice(), clean: +$('cl').textContent };
       const ec = envChange(prevEnv, envNow); prevEnv = envNow;
@@ -574,7 +603,7 @@ function start(name) {
       const vg = $('vision'); if (vg) vg.style.opacity = Math.min(0.85, (night ? 0.25 : 0) + (weather === 'rain' ? 0.12 : 0) + senseDizzy * 0.6 + (meHurt ? 0.15 : 0) + (vitals.tired ? 0.1 : 0));
       const vd = new THREE.Vector3(); camera.getWorldDirection(vd); const viewYaw = Math.atan2(vd.x, vd.z);
       const range = visionRange({ night, rain: weather === 'rain' });
-      npcs.forEach(o => { if (o.tag) o.tag.visible = canSee(me.position.x, me.position.z, viewYaw, o.g.position.x, o.g.position.z, range, 3.4); });
+      npcs.forEach(o => { if (o.tag) o.tag.visible = canSee(me.position.x, me.position.z, viewYaw, o.g.position.x, o.g.position.z, Math.min(range, att.radius), 3.4); });
       const calm = focus === 'overloaded' || dev.small;
       $('radio').style.opacity = calm ? 0.25 : 1; $('park').style.opacity = calm ? 0.5 : 1;
       const bal = stab > 0.75 ? 'steady' : stab > 0.5 ? 'wobbly' : 'unstable';

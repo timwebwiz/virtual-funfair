@@ -94,6 +94,6 @@ A `💓 …` line (bottom-left) shows heart rate, breathing, adrenaline, cortiso
 
 ## Voice chat & lip-sync
 Press **V** (or tap 🎤) to turn your microphone on or off; it is off until you enable it, and a green "Mic on" badge shows while it is live. The browser needs microphone permission and a secure origin (https or localhost).
-- **Your voice:** captured at 16 kHz with a noise gate, sent as binary WebSocket frames; the server relays them only to players within 45 m (rate-limited, sender id set by the server).
+- **Your voice:** captured with an AudioWorklet (`public/mic-worklet.js`), downsampled to 16 kHz with a noise gate, sent as binary WebSocket frames; the server relays them only to players within 45 m (rate-limited, sender id set by the server).
 - **Hearing others:** voices play in 3-D: quieter with distance and panned left/right by where the speaker stands.
 - **Lip-sync:** each avatar's mouth opens with the live loudness of the voice (yours from the mic, others from the audio you receive). Bright sounds stretch the mouth ("ee"), dark sounds round it ("oo"), and the jaw tips the head slightly. Works for photo, built and simple faces.

@@ -48,3 +48,9 @@ The front login page has a **🙂 Build a face** button that opens the customize
 - **Visual:** squinting in rain/night while moving.
 - **Olfactory:** foul smells make it pinch its nose; pleasant ones make it sniff.
 - **Gustatory:** each flavour has a face/gesture (chewing, sour pucker, fanning a spicy mouth). Reactions and dizziness are shown to other players.
+
+## Social & environmental feedback
+- **Emotional:** nearby sad/hurt people make the avatar concerned; happy crowds lift its mood.
+- **Social:** greetings aimed at you get an automatic reply; standing too close (beyond your personal space) causes discomfort.
+- **Cognitive:** a 💭 line shows what a nearby player or NPC seems to be doing or intending.
+- **Environmental:** messages for rain, night/morning, ride closures and a dirty park; mud or steep ground ahead triggers a warning and slows you.

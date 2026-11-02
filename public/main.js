@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateAvatar, EMOTES } from './avatar.js';
 import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE, balanceFor, stumbleRate, slopeSpeed, cognitiveLoad, focusState } from './playerstate.js';
 import { HILLS, MUD, heightAt, slopeAlong, onMud } from './terrain.js';
-import { pickReaction, FLAVOR_REACTION, hapticFor, SPOTS, smellAt, smellReaction, FLAVORS, nearestSpot, touchOf, surfaceTouch, hearing, panOf, visionRange, canSee, glanceBehind, Vestibular } from './senses.js';
+import { emotionAround, socialCue, crowding, intentOf, envChange, groundAhead, pickReaction, FLAVOR_REACTION, hapticFor, SPOTS, smellAt, smellReaction, FLAVORS, nearestSpot, touchOf, surfaceTouch, hearing, panOf, visionRange, canSee, glanceBehind, Vestibular } from './senses.js';
 import { detectDevice, pollGamepad, QualityGovernor } from './device.js';
 
 const dev = detectDevice();
@@ -232,7 +232,7 @@ function start(name) {
     if (npcs.has(r.id)) return;
     const g = r.role === 'ambulance' ? buildAmbulance() : buildAvatar({ ...r.look, cgi: r.id + 1 }); const tg = nameTag(r.name); if (r.role === 'ambulance') tg.position.y = 3.4; g.add(tg); const b = bubble(); if (r.role === 'ambulance') b.position.y = 4; g.add(b);
     Object.assign(g.userData, { tx: 0, tz: 0, try: 0, moving: 0, role: r.role, siren: 0 });
-    scene.add(g); npcs.set(r.id, { g, b, tag: tg, init: false });
+    scene.add(g); npcs.set(r.id, { g, b, tag: tg, name: r.name, init: false });
   };
   const setDown = (g, d) => { g.rotation.x = d ? -Math.PI / 2 : 0; g.userData.down = !!d; };
   const sky = { clear: new THREE.Color('#87ceeb'), rain: new THREE.Color('#6b7785') };
@@ -312,7 +312,7 @@ function start(name) {
       weather = m.w; clockMin = m.c; syncLitter(m.l || []); rideFault = m.r || [0, 0];
       $('cl').textContent = m.cl; { const names = ['ferris wheel', 'carousel'], f = rideFault.map((v, i) => v ? names[i] + (v === 2 ? ' (MAJOR FAULT)' : ' (closed)') : null).filter(Boolean); $('rd').textContent = f.length ? 'Closed: ' + f.join(', ') : 'Rides: all running'; $('rd').style.color = f.length ? '#ffb347' : ''; } $('hud').dataset.alert = m.a;
       const live = new Set();
-      m.n.forEach(s => { const o = npcs.get(s.id); if (!o) return; live.add(s.id); const u = o.g.userData; if (!o.init) { o.g.position.set(s.x, 0, s.z); o.init = true; } Object.assign(u, { tx: s.x, tz: s.z, try: s.r, moving: s.m, siren: s.e }); if (s.g && s.g !== o.gest) o.emote = { e: s.g, at: performance.now() }; o.gest = s.g; setBubble(o.b, s.s); setDown(o.g, s.d); });
+      m.n.forEach(s => { const o = npcs.get(s.id); if (!o) return; live.add(s.id); const u = o.g.userData; if (!o.init) { o.g.position.set(s.x, 0, s.z); o.init = true; } Object.assign(u, { tx: s.x, tz: s.z, try: s.r, moving: s.m, siren: s.e }); o.intent = s.i; o.mood = s.mo; if (s.g && s.g !== o.gest) o.emote = { e: s.g, at: performance.now() }; o.gest = s.g; setBubble(o.b, s.s); setDown(o.g, s.d); });
       npcs.forEach((o, id) => { if (!live.has(id)) { scene.remove(o.g); npcs.delete(id); } });
     }
     else if (m.t === 'radio') { const r = $('radio'), d = document.createElement('div'); d.textContent = `${m.from}: ${m.text}`; r.appendChild(d); while (r.children.length > 7) r.removeChild(r.children[1]); }
@@ -359,6 +359,7 @@ function start(name) {
   const temp0 = () => feelTemp(clockMin, weather) || 'mild';
   let actx = null, lastTaste = 0, burnUntil = 0, lastSmellMsg = '', lastSoundMsg = 0, vest = new Vestibular(), senseDizzy = 0;
   const tone = (f, d, v, pan) => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(), p = actx.createStereoPanner ? actx.createStereoPanner() : null; o.frequency.value = f; g.gain.value = v; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + d); o.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(actx.destination); } else g.connect(actx.destination); o.start(); o.stop(actx.currentTime + d); } catch {} };
+  let lastGround = 0, aheadSlow = 1, prevEnv = null, crowdT = 0, lastEmpathy = 0, lastCrowdMsg = 0; const repliedTo = new Map(), SPACE_M = { close: 0.9, normal: 1.5, wide: 2.4 };
   let rxName = '', rxUntil = 0, lastYaw = 0, turnRate = 0, sirenHeard = false;
   const react = (r, ms, force) => { if (!r || (rxName && performance.now() < rxUntil && r !== 'burn' && !force)) return; rxName = r; rxUntil = performance.now() + ms; };
   const buzz = (kind, w) => { if (dev.kind === 'touch' && navigator.vibrate) { try { navigator.vibrate(hapticFor(kind, w)); } catch {} } };
@@ -429,7 +430,7 @@ function start(name) {
       const load = carried ? Math.max(0.5, 1 - carried.userData.w / (stats.carryKg * 2.4)) : 1;
       const target0 = (meHurt ? 0.5 : 1) * stats.walk * (sprinting ? stats.sprintMul : 1) * Math.sqrt(Math.max(me.userData.top, 1.4) / 2) * Math.min(len, 1) * load * pushF * (vitals.stumble > 0 ? 0.4 : 1) * (vitals.winded ? 0.75 : 1);
       slopeNow = slopeAlong(me.position.x, me.position.z, wx, wz); mudNow = onMud(me.position.x, me.position.z);
-      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1);
+      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1) * aheadSlow;
       const grip = weather === 'rain' || mudNow ? 3 + stats.grip * 0.5 : 12; // wet ground: slower to start and stop
       speedNow += (target - speedNow) * Math.min(1, dt * grip);
       const px = me.position.x, pz = me.position.z;
@@ -505,6 +506,28 @@ function start(name) {
       const hr = hearing(me.position.x, me.position.z, srcs, { rain: weather === 'rain' });
       if (hr.loud && hr.loud.kind === 'siren') { tone(hr.loud.v > 0.5 ? 760 : 620, 0.2, Math.min(0.06, hr.loud.v * 0.1), panOf(me.position.x, me.position.z, me.rotation.y, hr.loud.x, hr.loud.z)); if (now > lastSoundMsg) { lastSoundMsg = now + 12000; $('hud').textContent = `You hear a siren ${panOf(me.position.x, me.position.z, me.rotation.y, hr.loud.x, hr.loud.z) < 0 ? 'to your left' : 'to your right'}.`; } }
       loudNow = hr.total;
+      // ---- emotional / social / cognitive / environmental feedback ----
+      const mePt = { x: me.position.x, z: me.position.z, ry: me.rotation.y };
+      const people = [];
+      others.forEach((g, id) => { const u = g.userData, o2 = u.s || {}; const vx = (u.tx - (u.px ?? u.tx)) / 0.25, vz = (u.tz - (u.pz ?? u.tz)) / 0.25; u.px = u.tx; u.pz = u.tz; people.push({ id: 'p' + id, name: u.name, x: g.position.x, z: g.position.z, ry: g.rotation.y, mood: o2.m || 'neutral', vx, vz, pushing: !!o2.pu, sprint: !!o2.sp, carrying: [...crates.values()].some(c => c.userData.by === id), emote: u.emote && performance.now() - u.emote.at < 2500 ? u.emote.e : null, at: u.emote && u.emote.at }); });
+      npcs.forEach((o, id) => { if (o.g.userData.role === 'ambulance') return; people.push({ id: 'n' + id, name: o.name || 'Staff', x: o.g.position.x, z: o.g.position.z, ry: o.g.rotation.y, mood: o.mood || 'neutral', label: o.intent, emote: o.emote && performance.now() - o.emote.at < 2500 ? o.emote.e : null, at: o.emote && o.emote.at }); });
+      // emotional: catch the mood of those nearby and notice distress
+      const emo = emotionAround(mePt.x, mePt.z, people);
+      if (emo) { if (!meHurt && !meDown) { chatMood = emo.mood; chatMoodUntil = now + 2500; } if (emo.concerned && now - lastEmpathy > 20000) { lastEmpathy = now; $('hud').textContent = `${emo.concerned.who} looks ${emo.concerned.mood === 'sad' ? 'upset or hurt' : 'worried'}. You feel concerned.`; } }
+      // social: answer greetings aimed at me, feel crowded when people stand too close
+      for (const p of people) { const cue = p.emote && socialCue(mePt, p, p.emote); if (cue && repliedTo.get(p.id) !== p.at && !moving && !emoteState(meEmote, now).emote && !meDown) { repliedTo.set(p.id, p.at); doEmote(cue.reply); $('hud').textContent = `${cue.from} greeted you. You respond.`; turn(me, Math.atan2(p.x - mePt.x, p.z - mePt.z), 0.6); break; } }
+      const crowd = crowding(mePt.x, mePt.z, people, SPACE_M[avatar.space] || 1.5);
+      crowdT = crowd > 0.5 ? crowdT + 0.25 : 0;
+      if (crowdT > 3 && now - lastCrowdMsg > 15000) { lastCrowdMsg = now; chatMood = 'nervous'; chatMoodUntil = now + 4000; $('hud').textContent = 'Someone is standing very close. You feel crowded.'; }
+      // cognitive: read what the nearest person seems to intend
+      let near = null, nd2 = 9; for (const p of people) { const d = Math.hypot(p.x - mePt.x, p.z - mePt.z); if (d < nd2) { nd2 = d; near = p; } }
+      const it = $('intent'); if (it) { it.style.display = near && focus !== 'overloaded' ? 'block' : 'none'; if (near) it.textContent = `💭 ${near.name}: ${intentOf(mePt, near)}`; }
+      // environmental: notice changes and the ground ahead
+      const envNow = { weather, night, faults: rideFault.slice(), clean: +$('cl').textContent };
+      const ec = envChange(prevEnv, envNow); prevEnv = envNow;
+      if (ec) { $('hud').textContent = ec.text; if (ec.mood) { chatMood = ec.mood; chatMoodUntil = now + 3500; } if (ec.react) react(ec.react, 1500); }
+      const ga = moving ? groundAhead(mePt.x, mePt.z, mePt.ry, onMud, heightAt) : null;
+      aheadSlow = ga ? ga.slow : 1; if (ga && now - lastGround > 12000) { lastGround = now; $('hud').textContent = ga.text; }
       const sirenNow = !!(hr.loud && hr.loud.kind === 'siren' && hr.loud.v > 0.3);
       const pr = pickReaction({ loud: hr.total, siren: sirenNow && !sirenHeard, smell: sm, rain: weather === 'rain', night, moving });
       if (sirenNow && !sirenHeard) buzz('siren');

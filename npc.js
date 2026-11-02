@@ -1,4 +1,5 @@
 // Server-authoritative NPC simulation: security, medics, visitors, ambulance.
+import { empathyMethods } from './empathy.js';
 import { findPath, isBlocked, STATIONS, HOSPITAL, HOSP_DOOR, AMB_BAY, DEPOT, front } from './nav.js';
 import { maintMethods } from './maint.js';
 const boothFront = i => { const a = i / 6 * Math.PI * 2; return [Math.cos(a) * 14, Math.sin(a) * 14]; };
@@ -143,6 +144,7 @@ export class World {
   }
 
   update(dt) {
+    this.reactToPlayers(dt);
     // time & weather
     this.clock = (this.clock + dt * 2) % 1440; // 1 real sec = 2 game min
     this.weatherT -= dt;
@@ -519,4 +521,4 @@ export class World {
   roster() { return this.npcs.map(n => ({ id: n.id, role: n.role, name: n.name, look: n.look })); }
   stationList() { return STATIONS; }
 }
-Object.assign(World.prototype, maintMethods);
+Object.assign(World.prototype, maintMethods, empathyMethods);

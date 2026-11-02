@@ -38,3 +38,13 @@ Features: photo-based avatars, NPC security/medics/maintenance/visitors with pat
 In the customizer (🎨 / **M**), choose **Face source**: **My photo** (upload, or take one with the camera; skin tone is matched), **Build my face** (eye colour/size/spacing, brows, nose, mouth width, lip colour, blush, freckles, lashes), or **Simple**. The face is synced to other players.
 
 The front login page has a **🙂 Build a face** button that opens the customizer straight at the face builder.
+
+## Sensory feedback
+
+- **Proprioception:** the body senses its own pose and corrects it: wider stance and arms out when unstable, leaning back against a carried load, leaning into turns, and a smoothed self-righting posture.
+- **Vestibular:** the head counter-rotates against body lean/roll to keep gaze level; dizziness weakens the reflex and wobbles the head. Edges of the screen darken when dizzy, at night, in rain or when hurt.
+- **Tactile:** touch devices vibrate when lifting crates (longer for heavier), burning on the grill, stumbling, tasting and hearing a siren; hot surfaces make the avatar recoil.
+- **Auditory:** loud noise makes the avatar cover its ears; a siren startles it (and is heard left/right).
+- **Visual:** squinting in rain/night while moving.
+- **Olfactory:** foul smells make it pinch its nose; pleasant ones make it sniff.
+- **Gustatory:** each flavour has a face/gesture (chewing, sour pucker, fanning a spicy mouth). Reactions and dizziness are shown to other players.

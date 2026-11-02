@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateAvatar, EMOTES } from './avatar.js';
 import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE, balanceFor, stumbleRate, slopeSpeed, cognitiveLoad, focusState } from './playerstate.js';
 import { HILLS, MUD, heightAt, slopeAlong, onMud } from './terrain.js';
-import { SPOTS, smellAt, smellReaction, FLAVORS, nearestSpot, touchOf, surfaceTouch, hearing, panOf, visionRange, canSee, glanceBehind, Vestibular } from './senses.js';
+import { pickReaction, FLAVOR_REACTION, hapticFor, SPOTS, smellAt, smellReaction, FLAVORS, nearestSpot, touchOf, surfaceTouch, hearing, panOf, visionRange, canSee, glanceBehind, Vestibular } from './senses.js';
 import { detectDevice, pollGamepad, QualityGovernor } from './device.js';
 
 const dev = detectDevice();
@@ -324,7 +324,7 @@ function start(name) {
     else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, ty: m.y || 0, tz: m.z, try: m.ry, s: m.s }); }
     else if (m.t === 'emote') { const g = others.get(m.id); if (g) { g.userData.emote = { e: m.e, at: performance.now() }; const me2 = emoteState(meEmote, performance.now()); if (m.e === 'handshake' && me2.emote === 'handshake' && Math.hypot(g.position.x - me.position.x, g.position.z - me.position.z) < 3.5) $('hud').textContent = `🤝 You shook hands with ${g.userData.name}!`; } }
     else if (m.t === 'crate') { const c = crates.get(m.id); if (c && c.userData.by == null) { c.userData.x = m.x; c.userData.z = m.z; c.position.set(m.x, c.userData.sz / 2, m.z); } }
-    else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) { const ft = touchOf(m.w, temp0()); $('hud').textContent = `You lifted a ${m.w} kg crate. ${ft.text} ${dev.kind === 'touch' ? 'Tap 📦' : 'Press G'} to put it down.`; tone(180, 0.08, 0.05, 0); } } } }
+    else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) { const ft = touchOf(m.w, temp0()); $('hud').textContent = `You lifted a ${m.w} kg crate. ${ft.text} ${dev.kind === 'touch' ? 'Tap 📦' : 'Press G'} to put it down.`; tone(180, 0.08, 0.05, 0); buzz('lift', m.w); } } } }
     else if (m.t === 'note') $('hud').textContent = m.text;
     else if (m.t === 'bonus') { xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
     else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
@@ -359,6 +359,9 @@ function start(name) {
   const temp0 = () => feelTemp(clockMin, weather) || 'mild';
   let actx = null, lastTaste = 0, burnUntil = 0, lastSmellMsg = '', lastSoundMsg = 0, vest = new Vestibular(), senseDizzy = 0;
   const tone = (f, d, v, pan) => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(), p = actx.createStereoPanner ? actx.createStereoPanner() : null; o.frequency.value = f; g.gain.value = v; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + d); o.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(actx.destination); } else g.connect(actx.destination); o.start(); o.stop(actx.currentTime + d); } catch {} };
+  let rxName = '', rxUntil = 0, lastYaw = 0, turnRate = 0, sirenHeard = false;
+  const react = (r, ms, force) => { if (!r || (rxName && performance.now() < rxUntil && r !== 'burn' && !force)) return; rxName = r; rxUntil = performance.now() + ms; };
+  const buzz = (kind, w) => { if (dev.kind === 'touch' && navigator.vibrate) { try { navigator.vibrate(hapticFor(kind, w)); } catch {} } };
   const taste = () => {
     if (meDown) return;
     const sp = nearestSpot(me.position.x, me.position.z, 3.2);
@@ -367,7 +370,7 @@ function start(name) {
     lastTaste = performance.now();
     const f = FLAVORS[sp.flavor];
     $('hud').textContent = `${sp.name}: ${f.text}`;
-    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; doEmote(f.emote);
+    chatMood = f.mood; chatMoodUntil = performance.now() + 5000; react(FLAVOR_REACTION[sp.flavor], 2200, true); buzz('taste');
     if (f.energy) vitals.stamina = Math.min(100, vitals.stamina + f.energy);
     tone(520, 0.12, 0.05, 0);
   };
@@ -397,6 +400,7 @@ function start(name) {
   addEventListener('pointerup', () => dragging = false);
   addEventListener('pointermove', e => { if (dragging) { camYaw -= (e.clientX - lastX) * 0.006; lastX = e.clientX; } });
   cv.addEventListener('wheel', e => { camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.01, 4, 16); });
+  window.__vf = { get me() { return me; }, taste, get rx() { return [rxName, rxUntil]; } };
   let loudNow = 0, load = 0, focus = 'focused', speedNow = 0, slopeNow = 0, mudNow = false, stab = 1, lite = 0, camBase = 0;
   const gov = new QualityGovernor(dev.lowEnd ? 1 : 0), sendEvery = dev.slowNet ? 0.15 : 0.05;
   const applyQuality = q => { renderer.setPixelRatio(q >= 1 ? 1 : Math.min(devicePixelRatio, 2)); sun.castShadow = q < 1; if (q >= 2) scene.fog.far = 90; lite = q; };
@@ -433,7 +437,7 @@ function start(name) {
       me.position.z = THREE.MathUtils.clamp(pz + wz * speedNow * dt, -75, 75);
       const bx = me.position.x, bz = me.position.z;
       collide(me.position);
-      if (sprinting && Math.hypot(me.position.x - bx, me.position.z - bz) > 0.1 && Math.random() < tripChance(stats) * dt * 10 && vitals.trip()) { speedNow *= 0.3; $('hud').textContent = 'You stumbled over an obstacle!'; }
+      if (sprinting && Math.hypot(me.position.x - bx, me.position.z - bz) > 0.1 && Math.random() < tripChance(stats) * dt * 10 && vitals.trip()) { speedNow *= 0.3; buzz('stumble'); $('hud').textContent = 'You stumbled over an obstacle!'; }
       turn(me, Math.atan2(wx, wz), 0.25);
     } else { speedNow = 0; slopeNow = 0; mudNow = onMud(me.position.x, me.position.z); }
 
@@ -457,8 +461,9 @@ function start(name) {
     vy -= 18 * dt; me.position.y = Math.max(floorY, me.position.y + vy * dt); if (me.position.y === floorY) vy = 0;
     const grounded = me.position.y - floorY < 0.05;
     stab = balanceFor({ slope: slopeNow, wet: weather === 'rain', mud: mudNow, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, hurt: meHurt, tired: vitals.tired ? 1 : 0, sprint: sprinting, agility: avatar.agility, level: avatar.level });
+    { let dy = me.rotation.y - lastYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy)); turnRate += (dy / Math.max(dt, 1e-3) - turnRate) * 0.2; lastYaw = me.rotation.y; }
     senseDizzy = vest.update(dt, me.rotation.y, camYaw, grounded); stab = Math.max(0, stab - vest.penalty);
-    if (moving && !frozen && grounded && Math.random() < stumbleRate(stab) * dt && vitals.trip()) { speedNow *= 0.3; $('hud').textContent = mudNow ? 'You slipped in the mud!' : 'You lost your footing on the slope!'; }
+    if (moving && !frozen && grounded && Math.random() < stumbleRate(stab) * dt && vitals.trip()) { speedNow *= 0.3; buzz('stumble'); $('hud').textContent = mudNow ? 'You slipped in the mud!' : 'You lost your footing on the slope!'; }
     const q = gov.sample(dt); if (q != null) applyQuality(q);
     { const gp = pollGamepad(); if (gp) { joy.x = gp.x; joy.y = gp.y; camYaw -= gp.cam * dt * 2.5; keys.shift = gp.sprint; if (gp.jump) jump(); if (gp.grab) toggleCarry(); if (gp.wave) doEmote('wave'); if (gp.emotes) doEmote('cheer'); } }
     if (moving && !frozen) meEmote = null;
@@ -473,12 +478,12 @@ function start(name) {
     { let gl = 0; npcs.forEach(o => { if (!gl && o.g.userData.role !== 'ambulance') gl = glanceBehind(me.position.x, me.position.z, me.rotation.y, o.g.position.x, o.g.position.z); }); if (gl && !moving) lk = gl; }
     if (senseDizzy > 0.4) lk += Math.sin(t * 5) * senseDizzy * 0.5;
     lkS += (lk - lkS) * Math.min(1, dt * 6);
-    { const sp = nearestSpot(me.position.x, me.position.z, 1.6), st = surfaceTouch(sp); if (st && now > burnUntil) { burnUntil = now + 3000; $('hud').textContent = st.text; if (st.pain) { speedNow *= 0.2; vitals.stamina = Math.max(0, vitals.stamina - 5); doEmote('shrug'); tone(900, 0.15, 0.06, 0); } } }
+    { const sp = nearestSpot(me.position.x, me.position.z, 1.6), st = surfaceTouch(sp); if (st && now > burnUntil) { burnUntil = now + 3000; $('hud').textContent = st.text; if (st.pain) { speedNow *= 0.2; vitals.stamina = Math.max(0, vitals.stamina - 5); react('burn', 1400); buzz('burn'); tone(900, 0.15, 0.06, 0); } } }
     if (meEmote && nearId != null && nd < 5 && !moving) turn(me, Math.atan2(others.get(nearId).position.x - me.position.x, others.get(nearId).position.z - me.position.z), 0.15);
     if (!moving && !frozen && nearId == null && idleFor > 12 && !meEmote && now - lastIdleEmote > 25000) { lastIdleEmote = now; doEmote(IDLE_EMOTE[avatar.interest] || 'stretch'); }
 
     const mood = effectiveMood({ base: avatar.mood, hurt: meHurt, down: meDown, tired: vitals.tired, chatMood: now < chatMoodUntil ? chatMood : null });
-    animateAvatar(me, t, { moving: moving && !frozen && grounded, speed: sprinting ? 11 : 8, sprint: sprinting, mood, tired: vitals.tired, temp, hurt: meHurt, carry: !!carried, push: pushing, stumble: vitals.stumble, look: lkS, slope: slopeNow, sway: Math.max(0, 1 - stab), calm: dev.reduceMotion, ...emoteState(meEmote, now) });
+    animateAvatar(me, t, { moving: moving && !frozen && grounded, speed: sprinting ? 11 : 8, sprint: sprinting, mood, tired: vitals.tired, temp, hurt: meHurt, carry: !!carried, push: pushing, stumble: vitals.stumble, look: lkS, slope: slopeNow, sway: Math.max(0, 1 - stab), calm: dev.reduceMotion, turn: turnRate, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, dizzy: senseDizzy, react: performance.now() < rxUntil ? rxName : '', ...emoteState(meEmote, now) });
 
     // experience: playing time raises the skill level
     xp += dt; xpSave += dt;
@@ -500,6 +505,12 @@ function start(name) {
       const hr = hearing(me.position.x, me.position.z, srcs, { rain: weather === 'rain' });
       if (hr.loud && hr.loud.kind === 'siren') { tone(hr.loud.v > 0.5 ? 760 : 620, 0.2, Math.min(0.06, hr.loud.v * 0.1), panOf(me.position.x, me.position.z, me.rotation.y, hr.loud.x, hr.loud.z)); if (now > lastSoundMsg) { lastSoundMsg = now + 12000; $('hud').textContent = `You hear a siren ${panOf(me.position.x, me.position.z, me.rotation.y, hr.loud.x, hr.loud.z) < 0 ? 'to your left' : 'to your right'}.`; } }
       loudNow = hr.total;
+      const sirenNow = !!(hr.loud && hr.loud.kind === 'siren' && hr.loud.v > 0.3);
+      const pr = pickReaction({ loud: hr.total, siren: sirenNow && !sirenHeard, smell: sm, rain: weather === 'rain', night, moving });
+      if (sirenNow && !sirenHeard) buzz('siren');
+      sirenHeard = sirenNow;
+      if (pr) react(pr.r, pr.ms);
+      const vg = $('vision'); if (vg) vg.style.opacity = Math.min(0.85, (night ? 0.25 : 0) + (weather === 'rain' ? 0.12 : 0) + senseDizzy * 0.6 + (meHurt ? 0.15 : 0) + (vitals.tired ? 0.1 : 0));
       const vd = new THREE.Vector3(); camera.getWorldDirection(vd); const viewYaw = Math.atan2(vd.x, vd.z);
       const range = visionRange({ night, rain: weather === 'rain' });
       npcs.forEach(o => { if (o.tag) o.tag.visible = canSee(me.position.x, me.position.z, viewYaw, o.g.position.x, o.g.position.z, range, 3.4); });
@@ -510,13 +521,13 @@ function start(name) {
       $('vitals').textContent = `${LEVELS[avatar.level]}${stars(avatar.level)} · Stamina ${'█'.repeat(Math.round(vitals.stamina / 10))}${'░'.repeat(10 - Math.round(vitals.stamina / 10))} · ${mood} · ${label} · Balance ${bal}${senseDizzy > 0.3 ? ' · 😵‍💫 dizzy' : ''}${loudNow > 0.6 ? ' · 🔊 loud' : ''}${mudNow ? ' (mud)' : Math.abs(slopeNow) > 0.15 ? (slopeNow > 0 ? ' (uphill)' : ' (downhill)') : ''}${temp ? ' · ' + (temp === 'cold' ? '🥶 cold' : '🥵 hot') : ''}${meHurt ? ' · 🩹 injured' : ''}${lite ? ' · Lite mode' : ''}`;
     }
     crates.forEach(m => { if (m.parent === scene) m.position.y = heightAt(m.position.x, m.position.z) + m.userData.sz / 2; });
-    if (t - sent > sendEvery && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, y: me.position.y, z: me.position.z, ry: me.rotation.y, s: { m: mood, tr: vitals.tired, tp: temp, pu: pushing, sp: sprinting, st: vitals.stumble, lk: lkS, fc: focus } })); }
+    if (t - sent > sendEvery && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, y: me.position.y, z: me.position.z, ry: me.rotation.y, s: { m: mood, tr: vitals.tired, tp: temp, pu: pushing, sp: sprinting, st: vitals.stumble, lk: lkS, fc: focus, rx: performance.now() < rxUntil ? rxName : '', dz: +senseDizzy.toFixed(2) } })); }
     others.forEach((g, id) => {
       const u = g.userData, d = Math.hypot(u.tx - g.position.x, u.tz - g.position.z);
       g.position.x += (u.tx - g.position.x) * 0.2; g.position.z += (u.tz - g.position.z) * 0.2; g.position.y += ((u.ty || 0) + (u.down ? 0.25 : 0) - g.position.y) * 0.3;
       turn(g, u.try, 0.3);
       const o = u.s || {}, mv = d > 0.02; if (mv) u.emote = null;
-      animateAvatar(g, t, { moving: mv, speed: o.sp ? 11 : 8, sprint: o.sp, mood: o.m, tired: o.tr, temp: o.tp, hurt: u.hurt, carry: [...crates.values()].some(c => c.userData.by === id), push: o.pu, stumble: o.st, look: o.lk, ...emoteState(u.emote, performance.now()) });
+      animateAvatar(g, t, { moving: mv, speed: o.sp ? 11 : 8, sprint: o.sp, mood: o.m, tired: o.tr, temp: o.tp, hurt: u.hurt, carry: [...crates.values()].some(c => c.userData.by === id), push: o.pu, stumble: o.st, look: o.lk, react: o.rx, dizzy: o.dz, ...emoteState(u.emote, performance.now()) });
     });
     npcs.forEach(o => {
       const g = o.g, u = g.userData, d = Math.hypot(u.tx - g.position.x, u.tz - g.position.z);

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { proprio, headStabilise } from './senses.js';
 
 // Photo -> avatar descriptor (small JSON sent to other players).
 // Extracts the face crop, skin tone, hair and clothing colours from the photo.
@@ -221,11 +222,30 @@ export function animateAvatar(g, t, s = {}) {
     else if (e === 'stretch') { aL = aR = -3.0; aLz = -0.2; aRz = 0.2; lean = -0.2; }
     else if (e === 'belly') { aR = -0.9; aRz = -0.5; lean += 0.05; }
   }
-  P.armL.rotation.set(aL, 0, aLz); P.armR.rotation.set(aR, 0, aRz);
-  P.legL.rotation.x = lL; P.legR.rotation.x = lR;
+  // proprioception: body corrects its own pose (stance, counterbalance, leaning into turns)
+  const pp = proprio({ stab: 1 - sway, slope: sl, loadRatio: s.load || 0, turnRate: s.turn || 0, speed: s.moving ? 1 : 0 });
+  lean += pp.counter; bz += pp.roll;
+  // sensory reactions override the arms / head briefly
+  const r = s.react;
+  let squint = 0;
+  if (r === 'ears') { aL = aR = -2.5; aLz = 0.75; aRz = -0.75; hx += 0.15; squint = 1; }
+  else if (r === 'nose') { aR = -2.2; aRz = -0.15; hy += 0.45; lean -= 0.1; squint = 1; }
+  else if (r === 'sniff') { hx -= 0.25 + Math.sin(t * 14) * 0.05; bob += Math.abs(Math.sin(t * 10)) * 0.01; }
+  else if (r === 'fan') { aR = -2.3; aRz = -0.2 + Math.sin(t * 18) * 0.35; hx -= 0.15; squint = 1; }
+  else if (r === 'pucker') { hz += 0.12; squint = 1; }
+  else if (r === 'startle') { lean -= 0.3; aL = aR = -1.0; aLz = -0.7; aRz = 0.7; bob += 0.03; }
+  else if (r === 'burn') { aR = 0.9 + Math.sin(t * 30) * 0.2; lean += 0.2; squint = 1; }
+  else if (r === 'squint') squint = 0.6;
+  P.armL.rotation.set(aL, 0, aLz - pp.armSpread * 0.4); P.armR.rotation.set(aR, 0, aRz + pp.armSpread * 0.4);
+  P.legL.rotation.set(lL, 0, -pp.stance * 0.5); P.legR.rotation.set(lR, 0, pp.stance * 0.5);
   if (s.calm) { shake = 0; bob *= 0.2; bz *= 0.4; }
-  P.body.rotation.set(lean, 0, bz + shake); P.body.position.y = bob;
-  P.headPivot.rotation.set(hx, hy, hz);
+  // low-pass the body pose: the body self-rights smoothly instead of snapping
+  const st = g.userData.pp || (g.userData.pp = { lean, bz: bz + shake });
+  st.lean += (lean - st.lean) * 0.35; st.bz += (bz + shake - st.bz) * 0.35;
+  P.body.rotation.set(st.lean, 0, st.bz); P.body.position.y = bob;
+  // vestibular reflex: the head counter-rotates so gaze stays level
+  const hs = headStabilise({ lean: st.lean, roll: st.bz, dizzy: s.dizzy || 0, t });
+  P.headPivot.rotation.set(hx + (s.calm ? 0 : hs.hx), hy, hz + (s.calm ? 0 : hs.hz));
 
   const m = P.mouth, bl = P.browL, br = P.browR;
   m.visible = bl.visible = br.visible = mood !== 'neutral' || !g.userData.hasFace;
@@ -236,6 +256,10 @@ export function animateAvatar(g, t, s = {}) {
   bl.rotation.z = mood === 'angry' ? -0.45 : mood === 'sad' || mood === 'nervous' ? 0.4 : 0;
   br.rotation.z = -bl.rotation.z;
   bl.position.y = br.position.y = 1.78 + (mood === 'excited' || mood === 'nervous' ? 0.02 : 0) - (mood === 'tired' ? 0.015 : 0);
+  if (squint) { bl.position.y = br.position.y -= 0.03 * squint; bl.rotation.z = br.rotation.z = 0; }
+  if (r === 'chew') m.scale.y = 0.6 + Math.abs(Math.sin(t * 12)) * 0.9;
+  else if (r === 'pucker') m.scale.set(0.4, 0.5, 1);
+  else if (r === 'fan' || r === 'burn' || r === 'startle') m.scale.set(0.8, 1.6, 1);
   P.sweat.visible = s.temp === 'hot';
   if (P.sweat.visible) P.sweat.position.y = 1.82 - ((t * 0.7) % 1) * 0.25;
 }

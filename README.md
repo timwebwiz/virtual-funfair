@@ -22,3 +22,12 @@ Features: photo-based avatars, NPC security/medics/maintenance/visitors with pat
 - **Technological adaptation:** touch/keyboard detection (hint text), gamepad (left stick move, right stick camera, A jump, B lift/drop, X wave, Y cheer, RT/R1 sprint), reduced-motion support, slower updates on slow networks and an automatic Lite mode when frame rate is low.
 - **NPCs and crates:** NPCs path around crates you push into their way, and cleaners haul stray crates back to their home spots. Push three crates onto the yellow delivery pad for bonus XP.
 - **NPC faces:** every NPC gets a procedurally generated CGI face (shaded skin, glossy eyes, brows, nose, lips) unique per NPC.
+
+## Senses
+
+- **Touch:** lifting a crate describes its texture, pressure (weight) and temperature; the chili grill burns, the ice cart is freezing.
+- **Hearing:** carousel music and ambulance sirens are sound sources; sirens play spatial (left/right) audio and are announced; loud areas show 🔊.
+- **Vision:** you only see name tags inside a view cone and range (shorter at night and in rain). Someone close behind you makes you glance round.
+- **Smell:** food stands (popcorn, candy, lemonade, chili, ice) smell pleasant; litter and spills smell foul and change mood.
+- **Taste:** press **T** (or 😋) at a stand: salty/sweet/sour/spicy/cold flavours change mood, emote and stamina.
+- **Equilibrium:** spinning the camera/avatar quickly builds dizziness that lowers Balance and wobbles the head; it fades at rest.

@@ -63,3 +63,13 @@ A `🌡 …` line (bottom-left) shows live readings; messages appear when a stat
 - **Temperature, humidity, pressure:** °C, % and hPa follow the park clock and weather; pressure eases toward a new value, so a front shows as ↓/↑.
 - **Vibration:** running rides rumble underfoot (major faults shake hard), reducing balance and buzzing touch devices.
 - **Magnetic / electric:** the compass (🧭) is disturbed near running machinery; static builds up in dry air or fields and zaps you when you grab a crate or taste food.
+
+## Mind feedback
+A `🧠 …` line (bottom-left) summarises strategy, memories, learned skill, voice and predictions.
+- **Vestibular / auditory / visual:** already covered by balance, dizziness, hearing and the vision vignette; new feedback builds on them.
+- **Speaking:** you hear a tone for your own voice; in loud areas you automatically raise it (or shout, shown in caps). Shouting strains your voice until it goes hoarse.
+- **Listening:** others' chat is harder to understand with distance and noise (words drop out); you glance toward the speaker.
+- **Memory:** places where you slipped, got burned, shocked or enjoyed food are saved (`localStorage`) and recalled when you return.
+- **Learning:** each slip makes you more sure-footed (fewer stumbles); repeated tastes reveal a favourite flavour.
+- **Predictive:** warns when someone will cross your path, when you will run out of breath, and when falling pressure means rain.
+- **Adaptive:** your pace becomes cautious, careful or confident based on recent slips, weather, pain and crowds.

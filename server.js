@@ -55,6 +55,9 @@ function cleanAvatar(a) {
   o.level = Math.min(2, Math.max(0, Math.round(Number(a.level) || 0)));
   o.height = Math.min(210, Math.max(130, Number(a.height) || 175));
   o.build = Math.min(1.3, Math.max(0.8, Number(a.build) || 1));
+  o.faceMode = ['photo', 'built', 'plain'].includes(a.faceMode) ? a.faceMode : 'photo';
+  const fb = a.fb && typeof a.fb === 'object' ? a.fb : {}, rng = (v, lo, hi, d) => Math.min(hi, Math.max(lo, Number.isFinite(+v) ? +v : d));
+  o.fb = { eyeColor: hex(fb.eyeColor), lipColor: hex(fb.lipColor), eyeSize: rng(fb.eyeSize, 0.7, 1.4, 1), eyeSpacing: rng(fb.eyeSpacing, 0.8, 1.25, 1), browThick: rng(fb.browThick, 0.5, 1.8, 1), noseSize: rng(fb.noseSize, 0.5, 1.6, 1), mouthWidth: rng(fb.mouthWidth, 0.7, 1.4, 1), cheeks: rng(fb.cheeks, 0, 0.7, 0.3), freckles: !!fb.freckles, lashes: fb.lashes !== false };
   o.face = typeof a.face === 'string' && a.face.startsWith('data:image/') && a.face.length < 100000 ? a.face : null;
   return o;
 }

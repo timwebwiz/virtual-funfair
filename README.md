@@ -32,3 +32,7 @@ Features: photo-based avatars, NPC security/medics/maintenance/visitors with pat
 - **Taste:** press **T** (or 😋) at a stand: salty/sweet/sour/spicy/cold flavours change mood, emote and stamina.
 - **Equilibrium:** spinning the camera/avatar quickly builds dizziness that lowers Balance and wobbles the head; it fades at rest.
 - **Collision:** food stands are solid obstacles for players (client + server) and NPC pathfinding, like rides and booths; the ice cart moved off the ferris wheel base.
+
+## Avatar face
+
+In the customizer (🎨 / **M**), choose **Face source**: **My photo** (upload, or take one with the camera; skin tone is matched), **Build my face** (eye colour/size/spacing, brows, nose, mouth width, lip colour, blush, freckles, lashes), or **Simple**. The face is synced to other players.

@@ -10,7 +10,7 @@ export const SPOTS = [
   { id: 'candy', name: 'candy cart', x: -14, z: 24, smell: 'sweet spun sugar', pleasant: 1, radius: 12, flavor: 'sweet' },
   { id: 'lemonade', name: 'lemonade stand', x: 20, z: 34, smell: 'fresh lemons', pleasant: 1, radius: 10, flavor: 'sour' },
   { id: 'grill', name: 'chili grill', x: -34, z: -26, smell: 'smoky chili', pleasant: 0.4, radius: 14, flavor: 'spicy', surface: 'hot' },
-  { id: 'icecart', name: 'ice cart', x: -30, z: -34, smell: 'cold vanilla', pleasant: 0.8, radius: 8, flavor: 'cold', surface: 'cold' }
+  { id: 'icecart', name: 'ice cart', x: -38, z: -34, smell: 'cold vanilla', pleasant: 0.8, radius: 8, flavor: 'cold', surface: 'cold' }
 ];
 
 // ---- Smell: strongest odour at a point (spots plus nearby litter/spills) ----

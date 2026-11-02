@@ -1,3 +1,4 @@
+import { SPOTS } from './public/senses.js';
 // Grid navigation: static obstacles (rides, booths, stations, hospital) + A* with line-of-sight smoothing.
 const MIN = -80, N = 160; // 1 m cells covering -80..80
 
@@ -16,6 +17,7 @@ export const OBSTACLES = [
   rect(HOSPITAL.x, HOSPITAL.z, 5.5, 6.5, 0),
   rect(DEPOT.x, DEPOT.z, 4, 5, 0),
   ...Array.from({ length: 6 }, (_, i) => { const a = i / 6 * Math.PI * 2; return rect(Math.cos(a) * 18, Math.sin(a) * 18, 2, 1.5, a); }), // booths
+  ...SPOTS.map(p => rect(p.x, p.z, 0.8, 1.1, 0)), // food stands
   ...STATIONS.map(s => rect(s.x, s.z, 2.5, 2, Math.atan2(s.z, s.x)))
 ];
 

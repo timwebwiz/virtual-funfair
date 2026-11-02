@@ -10,7 +10,19 @@ export function initCustomizer({ root, get, set }) {
   const inputs = {};
   const row = (label, el) => { const d = document.createElement('label'); d.className = 'row'; d.append(label, el); f.append(d); return el; };
 
-  const h = row('Height (cm)', Object.assign(document.createElement('input'), { type: 'number', min: HEIGHT_RANGE[0], max: HEIGHT_RANGE[1], step: 1 }));
+  let unit = localStorage.getItem('vf-unit') === 'in' ? 'in' : 'cm';
+  const toDisp = cm => unit === 'in' ? Math.round(cm / 2.54 * 10) / 10 : Math.round(cm);
+  const toCm = v => unit === 'in' ? v * 2.54 : v;
+  const u = row('Height unit', document.createElement('select'));
+  u.add(new Option('Centimeters (cm)', 'cm')); u.add(new Option('Inches (in)', 'in')); u.value = unit;
+  const h = row('Height', Object.assign(document.createElement('input'), { type: 'number', step: unit === 'in' ? 0.5 : 1 }));
+  const setRange = () => { h.min = toDisp(HEIGHT_RANGE[0]); h.max = toDisp(HEIGHT_RANGE[1]); h.step = unit === 'in' ? 0.5 : 1; };
+  setRange();
+  u.addEventListener('change', e => {
+    e.stopPropagation();
+    const cm = Math.min(HEIGHT_RANGE[1], Math.max(HEIGHT_RANGE[0], toCm(+h.value) || get().height));
+    unit = u.value; localStorage.setItem('vf-unit', unit); setRange(); h.value = toDisp(cm);
+  });
   const b = row('Build (slim → broad)', Object.assign(document.createElement('input'), { type: 'range', min: BUILD_RANGE[0], max: BUILD_RANGE[1], step: 0.01 }));
   inputs.height = h; inputs.build = b;
   for (const [k, l] of COLORS) inputs[k] = row(l, Object.assign(document.createElement('input'), { type: 'color' }));
@@ -23,7 +35,7 @@ export function initCustomizer({ root, get, set }) {
 
   const read = () => {
     const a = { ...get() };
-    a.height = Math.min(HEIGHT_RANGE[1], Math.max(HEIGHT_RANGE[0], +h.value || 175));
+    a.height = Math.min(HEIGHT_RANGE[1], Math.max(HEIGHT_RANGE[0], toCm(+h.value) || 175));
     a.build = +b.value;
     for (const [k] of COLORS) a[k] = inputs[k].value;
     for (const [k] of SELECTS) a[k] = inputs[k].value;
@@ -32,7 +44,7 @@ export function initCustomizer({ root, get, set }) {
   };
   const write = () => {
     const a = get();
-    h.value = a.height; b.value = a.build;
+    h.value = toDisp(a.height); b.value = a.build;
     for (const [k] of COLORS) inputs[k].value = a[k];
     for (const [k] of SELECTS) inputs[k].value = a[k];
     inputs.backpack.checked = !!a.backpack;

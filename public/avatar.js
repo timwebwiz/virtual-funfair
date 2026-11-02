@@ -150,6 +150,11 @@ export function buildAvatar(input) {
   // expressive face parts
   const dark = mat('#3a1d1d', 0.8);
   const mouth = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 6, 14, Math.PI), dark); mouth.name = 'mouth'; mouth.position.set(0, 1.64, 0.26); HI.add(mouth);
+  // open mouth used for lip-sync: dark cavity with a tooth strip, scaled by the speech level
+  const talk = new THREE.Group(); talk.name = 'talk'; talk.position.set(0, 1.64, 0.263); talk.visible = false;
+  const cav = new THREE.Mesh(new THREE.CircleGeometry(1, 20), new THREE.MeshBasicMaterial({ color: '#3b0d14' })); cav.name = 'cav';
+  const teeth = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.35), new THREE.MeshBasicMaterial({ color: '#f4f1ea' })); teeth.name = 'teeth'; teeth.position.set(0, 0.62, 0.001);
+  talk.add(cav, teeth); HI.add(talk);
   for (const [n, sx] of [['browL', -1], ['browR', 1]]) { const b2 = new THREE.Mesh(new THREE.BoxGeometry(0.075, 0.014, 0.014), dark); b2.name = n; b2.position.set(sx * 0.09, 1.78, 0.25); HI.add(b2); }
   const sweat = new THREE.Mesh(new THREE.SphereGeometry(0.022, 8, 8), new THREE.MeshStandardMaterial({ color: '#7dd3fc', transparent: true, opacity: 0.85 })); sweat.name = 'sweat'; sweat.position.set(0.2, 1.8, 0.14); sweat.visible = false; HI.add(sweat);
   H.name = 'headPivot'; body.name = 'body'; outer.userData.hasFace = !!(a.cgi || mode === 'built' || (mode === 'photo' && a.face));
@@ -176,7 +181,7 @@ export function buildAvatar(input) {
   return outer;
 }
 
-const parts = g => g.userData.parts || (g.userData.parts = Object.fromEntries(['body', 'headPivot', 'armL', 'armR', 'legL', 'legR', 'mouth', 'browL', 'browR', 'sweat'].map(n => [n, g.getObjectByName(n)])));
+const parts = g => g.userData.parts || (g.userData.parts = Object.fromEntries(['body', 'headPivot', 'armL', 'armR', 'legL', 'legR', 'mouth', 'talk', 'browL', 'browR', 'sweat'].map(n => [n, g.getObjectByName(n)])));
 const PI = Math.PI;
 
 // Full-body pose: gait, posture, mood, temperature, fatigue, injury, carrying and emotes.
@@ -264,6 +269,17 @@ export function animateAvatar(g, t, s = {}) {
   br.rotation.z = -bl.rotation.z;
   bl.position.y = br.position.y = 1.78 + (mood === 'excited' || mood === 'nervous' ? 0.02 : 0) - (mood === 'tired' ? 0.015 : 0);
   if (squint) { bl.position.y = br.position.y -= 0.03 * squint; bl.rotation.z = br.rotation.z = 0; }
+  const tk = s.talk, T = P.talk;
+  if (T) {
+    const talking = !!tk && tk.open > 0.03;
+    T.visible = talking;
+    if (talking) {
+      m.visible = false;
+      const w = 0.042 * (1 + 0.45 * tk.wide), h = 0.006 + 0.036 * tk.open;
+      T.scale.set(w, h, 1); T.position.y = 1.655 - h * 0.5; T.getObjectByName('teeth').visible = tk.open < 0.7;
+      P.headPivot.rotation.x += tk.open * 0.05; // jaw drop tips the head slightly
+    }
+  }
   if (r === 'chew') m.scale.y = 0.6 + Math.abs(Math.sin(t * 12)) * 0.9;
   else if (r === 'pucker') m.scale.set(0.4, 0.5, 1);
   else if (r === 'fan' || r === 'burn' || r === 'startle') m.scale.set(0.8, 1.6, 1);

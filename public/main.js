@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { ITEMS, nearestItem, useItem, beautyAt, beautyText, muralSpec, culturalRead, normCheck, cutsInLine } from './items.js';
 import { Physio, hrZone, feeling, needsCalm } from './physio.js';
+import { VoiceIO } from './voiceio.js';
+import { LipSync, voiceGain, unpackFrame } from './voicechat.js';
 import { Voice, voiceLevel, intelligibility, heardAs, Memory, recallText, BAD, Learning, predictContact, secondsToWinded, forecast, adaptPace, strategyOf, decaySlips } from './mind.js';
 import { topDrive, DRIVE_TEXT, motiveOf, Goals, Reinforcement, moralCheck, helping, Curiosity, cellOf, curiousGlance, attention, empathicNudge } from './drive.js';
 import { Body, climate, easePressure, pressureTrend, vibrationAt, fieldAt, compass, limbs, bodyState, bodyNotice } from './body.js';
@@ -317,10 +319,15 @@ function start(name) {
   $('emoBtn').onclick = () => { bar.style.display = bar.style.display === 'flex' ? 'none' : 'flex'; };
   const EMOTE_KEYS = Object.keys(EMOTES);
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}`);
+  const ws = new WebSocket(`${proto}://${location.host}`); ws.binaryType = 'arraybuffer';
   let myId = null;
   ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name, avatar, dev: dev.kind }));
   ws.onmessage = e => {
+    if (typeof e.data !== 'string') { // voice frame from another player
+      const f = unpackFrame(e.data), og = f && others.get(f.id); if (!og) return;
+      const d = Math.hypot(og.position.x - me.position.x, og.position.z - me.position.z);
+      voiceIO.play(f.id, f.pcm, voiceGain(d), panOf(me.position.x, me.position.z, me.rotation.y, og.position.x, og.position.z)); return;
+    }
     const m = JSON.parse(e.data);
     if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); if (m.pad) buildPad(m.pad); }
     else if (m.t === 'roster') m.npcs.forEach(addNpc);
@@ -343,7 +350,7 @@ function start(name) {
     else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) { const ft = touchOf(m.w, temp0()); $('hud').textContent = `You lifted a ${m.w} kg crate. ${ft.text} ${dev.kind === 'touch' ? 'Tap 📦' : 'Press G'} to put it down.`; tone(180, 0.08, 0.05, 0); buzz('lift', m.w); zap(); } } } }
     else if (m.t === 'note') $('hud').textContent = m.text;
     else if (m.t === 'bonus') { rein.reward(10, performance.now()); saveDrive(); xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
-    else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
+    else if (m.t === 'leave') { voiceIO.drop(m.id); const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
     else if (m.t === 'chat') { if (m.id === myId) $('hud').textContent = `${name}: ${m.text}`; else { const og = others.get(m.id), d = og ? Math.hypot(og.position.x - me.position.x, og.position.z - me.position.z) : 10, lvl = m.text === m.text.toUpperCase() && /[A-Z]/.test(m.text) ? 'shout' : 'normal', q = intelligibility(d, loudNow, lvl), h = heardAs(m.text, q), who = (og && og.userData.name) || 'Player ' + m.id; $('hud').textContent = h === null ? `${who} says something, but you cannot make it out.` : `${who}${q < 0.5 ? ' (hard to hear)' : ''}: ${h}`; if (og && h !== null) { const a = Math.atan2(og.position.x - me.position.x, og.position.z - me.position.z); lkListen = { a: a - me.rotation.y, until: performance.now() + 2500 }; } } }
   };
 
@@ -368,6 +375,7 @@ function start(name) {
     if (k === 'l') dropLitter();
     if (k === 'u') useNearest();
     if (k === 'b') breathe();
+    if (k === 'v') toggleMic();
   });
   const jump = () => { if (me.position.y - heightAt(me.position.x, me.position.z) <= 0.001 && !meDown && !meHurt && !vitals.winded && vitals.stamina > 10) { vy = stats.jump * (carryingId() ? 0.7 : 1); vitals.stamina -= 8; } };
   const shout = () => { if (meDown) return; act('shout'); phys.spike(0.25); { const o = [...others.values()].map(g => ({ g, d: Math.hypot(g.position.x - me.position.x, g.position.z - me.position.z) })).sort((a, b) => a.d - b.d)[0]; const av = o && o.g.userData.av; const nc = o && av && normCheck({ shouting: true, dist: o.d, other: av }); if (nc) guilt(3, nc.text); } voice.say('shout'); const vt = voice.tone('shout'); tone(vt.f, 0.25, vt.v, 0); $('hud').textContent = voice.hoarse ? 'You shouted, but your voice cracks. You are getting hoarse.' : 'You shouted! Security may come over.'; };
@@ -376,6 +384,15 @@ function start(name) {
   // ---- senses: taste, touch, audio ----
   const temp0 = () => feelTemp(clockMin, weather) || 'mild';
   const body = new Body(), voice = new Voice();
+  const voiceIO = new VoiceIO(buf => { if (ws.readyState === 1) ws.send(buf); }, () => myId), myLip = new LipSync();
+  const micBtn = $('bMic');
+  const toggleMic = async () => {
+    if (voiceIO.on) { voiceIO.stop(); $('hud').textContent = 'Microphone off. Your avatar is quiet.'; }
+    else { try { await voiceIO.start(); $('hud').textContent = 'Microphone on. Players nearby can hear you and your avatar speaks with your voice.'; } catch (err) { $('hud').textContent = err && err.name === 'NotAllowedError' ? 'Microphone permission was denied.' : `Could not start the microphone: ${err.message || 'unavailable'}`; } }
+    if (micBtn) micBtn.style.background = voiceIO.on ? '#2e7d32' : '';
+    const mi = $('mic'); if (mi) mi.style.display = voiceIO.on ? 'block' : 'none';
+  };
+  addEventListener('pointerdown', () => voiceIO.ensureCtx(), { once: false });
   let ds = {}; try { ds = JSON.parse(localStorage.getItem('vf-drive') || '{}'); } catch {}
   const goals = new Goals(ds.goals), rein = new Reinforcement(ds.rein), cur = new Curiosity(ds.seen), poiSeen = new Set(ds.poi || []);
   const POIS = [...SPOTS.map(p => ({ id: p.id, name: p.name, x: p.x, z: p.z, r: 5 })), { id: 'ferris', name: 'ferris wheel', x: -30, z: -30, r: 14 }, { id: 'carousel', name: 'carousel', x: 30, z: -20, r: 10 }];
@@ -439,7 +456,7 @@ function start(name) {
   if ('ontouchstart' in window) {
     $('acts').style.display = 'flex';
     const tap = (id, f) => $(id).addEventListener('touchstart', e => { e.preventDefault(); f(); }, { passive: false });
-    tap('bUse', useNearest); tap('bBreathe', breathe); tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bGrab', toggleCarry); tap('bTaste', taste); tap('bEdit', openCustom);
+    tap('bMic', toggleMic); tap('bUse', useNearest); tap('bBreathe', breathe); tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bGrab', toggleCarry); tap('bTaste', taste); tap('bEdit', openCustom);
   }
   addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
   const chat = $('chat'); chat.style.display = 'block';
@@ -545,7 +562,8 @@ function start(name) {
     if (!moving && !frozen && nearId == null && idleFor > 12 && !meEmote && now - lastIdleEmote > 25000) { lastIdleEmote = now; doEmote(IDLE_EMOTE[avatar.interest] || 'stretch'); }
 
     const mood = effectiveMood({ base: avatar.mood, hurt: meHurt, down: meDown, tired: vitals.tired, chatMood: now < chatMoodUntil ? chatMood : null });
-    animateAvatar(me, t, { moving: moving && !frozen && grounded, speed: sprinting ? 11 : 8, sprint: sprinting, mood, tired: vitals.tired, temp, hurt: meHurt, carry: !!carried, push: pushing, stumble: vitals.stumble, look: lkS, slope: slopeNow, sway: Math.max(0, 1 - stab), calm: dev.reduceMotion, turn: turnRate, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, dizzy: senseDizzy, react: performance.now() < rxUntil ? rxName : '', ...emoteState(meEmote, now) });
+    const myTalk = (() => { const sm = voiceIO.sampleLocal(); return myLip.update(dt, sm.level, sm.bright); })();
+    animateAvatar(me, t, { talk: myTalk, moving: moving && !frozen && grounded, speed: sprinting ? 11 : 8, sprint: sprinting, mood, tired: vitals.tired, temp, hurt: meHurt, carry: !!carried, push: pushing, stumble: vitals.stumble, look: lkS, slope: slopeNow, sway: Math.max(0, 1 - stab), calm: dev.reduceMotion, turn: turnRate, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, dizzy: senseDizzy, react: performance.now() < rxUntil ? rxName : '', ...emoteState(meEmote, now) });
 
     // experience: playing time raises the skill level
     xp += dt; xpSave += dt;
@@ -668,7 +686,8 @@ function start(name) {
       g.position.x += (u.tx - g.position.x) * 0.2; g.position.z += (u.tz - g.position.z) * 0.2; g.position.y += ((u.ty || 0) + (u.down ? 0.25 : 0) - g.position.y) * 0.3;
       turn(g, u.try, 0.3);
       const o = u.s || {}, mv = d > 0.02; if (mv) u.emote = null;
-      animateAvatar(g, t, { moving: mv, speed: o.sp ? 11 : 8, sprint: o.sp, mood: o.m, tired: o.tr, temp: o.tp, hurt: u.hurt, carry: [...crates.values()].some(c => c.userData.by === id), push: o.pu, stumble: o.st, look: o.lk, react: o.rx, dizzy: o.dz, ...emoteState(u.emote, performance.now()) });
+      const sr = voiceIO.sampleRemote(id); u.lip = u.lip || new LipSync();
+      animateAvatar(g, t, { talk: u.lip.update(dt, sr.level, sr.bright), moving: mv, speed: o.sp ? 11 : 8, sprint: o.sp, mood: o.m, tired: o.tr, temp: o.tp, hurt: u.hurt, carry: [...crates.values()].some(c => c.userData.by === id), push: o.pu, stumble: o.st, look: o.lk, react: o.rx, dizzy: o.dz, ...emoteState(u.emote, performance.now()) });
     });
     npcs.forEach(o => {
       const g = o.g, u = g.userData, d = Math.hypot(u.tx - g.position.x, u.tz - g.position.z);

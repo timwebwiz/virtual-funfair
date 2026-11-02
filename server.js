@@ -67,7 +67,14 @@ const num = v => (Number.isFinite(v) ? Math.max(-200, Math.min(200, v)) : 0);
 wss.on('connection', ws => {
   const id = nextId++;
   ws.id = id;
-  ws.on('message', raw => {
+  ws.on('message', (raw, isBinary) => {
+    if (isBinary) { // voice frame: relay to nearby players, stamped with the true sender id
+      const p = players.get(id); if (!p || raw.length < 5 || raw.length > 8192 || raw[0] !== 1) return;
+      const now = Date.now(); if (now - (ws.vt || 0) > 1000) { ws.vt = now; ws.vn = 0; } if (++ws.vn > 80) return;
+      const out = Buffer.from(raw); out.writeUInt16BE(id, 1);
+      wss.clients.forEach(c => { const q = players.get(c.id); if (c !== ws && q && c.readyState === 1 && Math.hypot(q.x - p.x, q.z - p.z) < 45) c.send(out, { binary: true }); });
+      return;
+    }
     let m; try { m = JSON.parse(raw); } catch { return; }
     if (m.t === 'join') {
       const p = { id, name: String(m.name || 'Guest').slice(0, 20), avatar: cleanAvatar(m.avatar), dev: DEVICES.includes(m.dev) ? m.dev : 'keyboard', x: 0, z: 8, ry: 0 };

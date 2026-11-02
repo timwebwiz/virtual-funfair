@@ -106,3 +106,37 @@ export class Vestibular {
 }
 // Standing on a slope with eyes on the horizon (looking forward) keeps balance; ground tilt in degrees for display.
 export const tiltDeg = (x, z, ry) => Math.round(Math.atan((heightAt(x + Math.sin(ry) * 0.5, z + Math.cos(ry) * 0.5) - heightAt(x, z)) / 0.5) * 57.3);
+
+// ---- Sensory feedback: reactions the body shows (and others can see) ----
+export const REACTIONS = ['ears', 'nose', 'sniff', 'fan', 'pucker', 'chew', 'squint', 'startle', 'burn'];
+export const FLAVOR_REACTION = { salty: 'chew', sweet: 'chew', sour: 'pucker', spicy: 'fan', cold: 'chew' };
+// Pick a reaction from what the senses currently report (null = none).
+export function pickReaction({ loud = 0, siren = false, smell = null, burn = false, rain = false, night = false, moving = false }) {
+  if (burn) return { r: 'burn', ms: 1400 };
+  if (siren) return { r: 'startle', ms: 1200 };
+  if (loud > 0.85) return { r: 'ears', ms: 2000 };
+  if (smell && smell.strength > 0.5 && smell.pleasant < 0.3) return { r: 'nose', ms: 2200 };
+  if (smell && smell.strength > 0.5 && smell.pleasant >= 0.7) return { r: 'sniff', ms: 1500 };
+  if ((rain || night) && moving) return { r: 'squint', ms: 600 };
+  return null;
+}
+
+// ---- Proprioception: the body senses its own pose and corrects it ----
+// Wider stance and arm counterbalance when unstable, lean back against a carried load,
+// and lean into turns. Returns offsets that animateAvatar blends into the pose.
+export function proprio({ stab = 1, slope = 0, loadRatio = 0, turnRate = 0, speed = 0 }) {
+  const wobble = clamp(1 - stab, 0, 1);
+  return {
+    stance: clamp(wobble * 0.7 + Math.abs(slope) * 0.5, 0, 0.5),   // leg splay (rad each side)
+    counter: -clamp(loadRatio, 0, 1) * 0.18,                       // lean back against a load
+    roll: clamp(-turnRate * speed * 0.012, -0.22, 0.22),           // lean into a turn
+    armSpread: wobble * 0.5
+  };
+}
+// ---- Vestibular head control: the head counter-rotates against body motion to keep gaze level ----
+export function headStabilise({ lean = 0, roll = 0, dizzy = 0, t = 0 }) {
+  const k = 1 - clamp(dizzy, 0, 1) * 0.8; // dizziness weakens the reflex
+  return { hx: -lean * 0.6 * k + Math.sin(t * 3.1) * dizzy * 0.12, hz: -roll * 0.7 * k + Math.sin(t * 2.3) * dizzy * 0.1 };
+}
+// Haptic pattern (ms) for a touch device; heavier objects buzz longer.
+export const hapticFor = (kind, weightKg = 0) => ({ lift: [Math.min(120, 30 + weightKg * 1.5)], burn: [60, 40, 90], stumble: [40, 30, 40], siren: [200, 100, 200], taste: [25] }[kind] || [20]);

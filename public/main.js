@@ -21,7 +21,7 @@ const customizer = initCustomizer({ root: $('custom'), get: () => avatar, set: a
 const openCustom = () => { $('custom').style.display = 'flex'; customizer.show(); };
 const closeCustom = () => { $('custom').style.display = 'none'; customizer.hide(); onAvatarChange(); };
 $('custBtn').onclick = openCustom; $('custDone').onclick = closeCustom;
-const photoAvatar = p => { avatar = { ...avatar, ...p }; saveAvatar(); };
+const photoAvatar = p => { avatar = { ...avatar, ...p, faceMode: 'photo' }; saveAvatar(); };
 
 // ---------- Photo capture / upload ----------
 const loadImg = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = src; });

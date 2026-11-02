@@ -54,3 +54,12 @@ The front login page has a **🙂 Build a face** button that opens the customize
 - **Social:** greetings aimed at you get an automatic reply; standing too close (beyond your personal space) causes discomfort.
 - **Cognitive:** a 💭 line shows what a nearby player or NPC seems to be doing or intending.
 - **Environmental:** messages for rain, night/morning, ride closures and a dirty park; mud or steep ground ahead triggers a warning and slows you.
+
+## Body & environment feedback
+A `🌡 …` line (bottom-left) shows live readings; messages appear when a state is first entered.
+- **Kinesthetic / proprioceptive:** limb state (relaxed, ready, heavy, strained, trembling); trembling arms shake visibly.
+- **Interoceptive:** hunger and thirst build over time (faster when hot or sprinting); at high levels stamina drains faster. Food stands (T) relieve them.
+- **Pain:** stumbles, burns and injury raise pain, which slows you and makes you wince.
+- **Temperature, humidity, pressure:** °C, % and hPa follow the park clock and weather; pressure eases toward a new value, so a front shows as ↓/↑.
+- **Vibration:** running rides rumble underfoot (major faults shake hard), reducing balance and buzzing touch devices.
+- **Magnetic / electric:** the compass (🧭) is disturbed near running machinery; static builds up in dry air or fields and zaps you when you grab a crate or taste food.

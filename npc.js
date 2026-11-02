@@ -37,6 +37,8 @@ const randomLook = () => ({
   pants: pick(['#334155', '#1e3a5f', '#4b5563', '#6b4f3a'])
 });
 
+// what an NPC is trying to do, shown to players who read intentions
+const INTENT = { respond: 'rushing to an emergency', treat: 'giving medical care', attend: 'helping someone', fetch: 'going to fetch a crate', haul: 'hauling a crate', dump: 'taking rubbish to the bin', work: 'cleaning up', fault: 'fixing a ride', restock: 'restocking supplies', load: 'loading supplies', flee: 'running for cover', shelter: 'sheltering from the rain', watch: 'keeping watch', talk: 'chatting', drive: 'driving to a call', down: 'needs help' };
 export class World {
   constructor(players, emit) {
     this.players = players; this.emit = emit; // emit(msg) broadcasts to everyone
@@ -542,7 +544,7 @@ export class World {
   snapshot() {
     return {
       t: 'npcs', ...this.maintSnapshot(), w: this.weather, c: Math.round(this.clock), a: Math.round(this.alert * 10) / 10,
-      n: this.npcs.map(n => ({ id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2), r: +n.ry.toFixed(2), d: n.down ? 1 : 0, s: n.say, e: n.siren ? 1 : 0, m: n.state === 'walk' || n.state === 'drive' || (n.state === 'dump') || n.state === 'respond' || n.state === 'flee' || n.state === 'shelter' || n.state === 'haul' || n.state === 'fetch' ? 1 : 0, g: n.gest || '' }))
+      n: this.npcs.map(n => ({ id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2), r: +n.ry.toFixed(2), d: n.down ? 1 : 0, s: n.say, e: n.siren ? 1 : 0, m: n.state === 'walk' || n.state === 'drive' || (n.state === 'dump') || n.state === 'respond' || n.state === 'flee' || n.state === 'shelter' || n.state === 'haul' || n.state === 'fetch' ? 1 : 0, g: n.gest || '', i: INTENT[n.state] || '', mo: n.down ? 'sad' : n.state === 'flee' || n.state === 'shelter' ? 'nervous' : n.role === 'visitor' ? 'happy' : 'neutral' }))
     };
   }
   roster() { return this.npcs.map(n => ({ id: n.id, role: n.role, name: n.name, look: n.look })); }

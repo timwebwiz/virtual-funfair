@@ -140,3 +140,73 @@ export function headStabilise({ lean = 0, roll = 0, dizzy = 0, t = 0 }) {
 }
 // Haptic pattern (ms) for a touch device; heavier objects buzz longer.
 export const hapticFor = (kind, weightKg = 0) => ({ lift: [Math.min(120, 30 + weightKg * 1.5)], burn: [60, 40, 90], stumble: [40, 30, 40], siren: [200, 100, 200], taste: [25] }[kind] || [20]);
+
+// ---- Emotional feedback: empathy / contagion ----
+const VALENCE = { happy: 1, excited: 1, neutral: 0, tired: -0.3, nervous: -0.6, angry: -0.7, sad: -1 };
+// Mood of those around, weighted by closeness. Returns the mood the avatar "catches" (or null) and how strongly.
+export function emotionAround(x, z, people, range = 7) {
+  let sum = 0, w = 0, worst = null;
+  for (const p of people) {
+    const d = Math.hypot(p.x - x, p.z - z); if (d > range) continue;
+    const k = 1 - d / range, v = VALENCE[p.mood] ?? 0;
+    sum += v * k; w += k;
+    if (v < -0.5 && (!worst || k > worst.k)) worst = { k, mood: p.mood, who: p.name };
+  }
+  if (!w) return null;
+  const avg = sum / w;
+  if (worst && worst.k > 0.3) return { mood: 'nervous', strength: worst.k, concerned: worst };
+  if (avg > 0.5 && w > 0.4) return { mood: 'happy', strength: Math.min(1, w) };
+  return null;
+}
+
+// ---- Social feedback: reading cues aimed at me ----
+// A cue is an emote/gesture by someone close who is facing me. Returns the polite reply (or null).
+const REPLY = { wave: 'wave', bow: 'bow', namaste: 'namaste', handshake: 'handshake', cheer: 'cheer', nod: 'nod', point: 'nod', dance: 'cheer' };
+export function socialCue(me, other, emote) {
+  if (!emote || !REPLY[emote]) return null;
+  const d = Math.hypot(other.x - me.x, other.z - me.z);
+  if (d > 6 || d < 0.3) return null;
+  let a = Math.atan2(me.x - other.x, me.z - other.z) - other.ry; a = Math.atan2(Math.sin(a), Math.cos(a));
+  if (Math.abs(a) > 1.3) return null; // not directed at me
+  return { reply: REPLY[emote], from: other.name, d };
+}
+// Crowding: how uncomfortable is the current closeness? 0 fine .. 1 very. `pref` is the personal-space radius.
+export function crowding(x, z, people, pref = 1.5) {
+  let worst = 0;
+  for (const p of people) { const d = Math.hypot(p.x - x, p.z - z); if (d < pref) worst = Math.max(worst, 1 - d / pref); }
+  return worst;
+}
+
+// ---- Cognitive feedback: reading intentions ----
+// Players: infer from motion and state. `v` is a velocity {x,z}. NPCs supply their own label.
+export function intentOf(me, p) {
+  if (p.label) return p.label;
+  const sp = Math.hypot(p.vx || 0, p.vz || 0), d = Math.hypot(me.x - p.x, me.z - p.z);
+  if (p.pushing) return 'pushing a crate';
+  if (p.carrying) return 'carrying a crate';
+  if (sp > 0.8) { const toMe = ((me.x - p.x) * p.vx + (me.z - p.z) * p.vz) / (Math.max(d, 0.1) * sp); if (toMe > 0.8 && d < 12) return 'coming over to you'; if (toMe < -0.8) return 'walking away'; return p.sprint ? 'in a hurry' : 'strolling around'; }
+  if (p.emote) return 'trying to talk to you';
+  return d < 3 ? 'standing nearby' : 'looking around';
+}
+
+// ---- Environmental feedback ----
+// Describe a change between two world snapshots; returns {text, react?, mood?} or null.
+export function envChange(prev, cur) {
+  if (!prev) return null;
+  if (prev.weather !== 'rain' && cur.weather === 'rain') return { text: 'It starts to rain. The ground gets slippery.', react: 'squint', mood: 'nervous' };
+  if (prev.weather === 'rain' && cur.weather !== 'rain') return { text: 'The rain stops. The sun peeks out.', mood: 'happy' };
+  if (!prev.night && cur.night) return { text: 'Night falls and it gets harder to see.', react: 'squint' };
+  if (prev.night && !cur.night) return { text: 'Morning light returns.', mood: 'happy' };
+  for (let i = 0; i < (cur.faults || []).length; i++) if (!(prev.faults || [])[i] && cur.faults[i]) return { text: `The ${['ferris wheel', 'carousel'][i] || 'ride'} has just closed.`, mood: 'nervous' };
+  if ((prev.clean ?? 100) >= 60 && cur.clean < 60) return { text: 'The park is getting messy.', mood: 'nervous' };
+  return null;
+}
+// Look ahead along the heading: warn about mud or a steep slope within 4 m.
+export function groundAhead(x, z, ry, mudAt, heightAt) {
+  const px = x + Math.sin(ry) * 4, pz = z + Math.cos(ry) * 4;
+  if (mudAt(px, pz)) return { text: 'Mud ahead. Watch your footing.', slow: 0.85 };
+  const rise = heightAt(px, pz) - heightAt(x, z);
+  if (rise > 1.2) return { text: 'A steep climb ahead.', slow: 0.9 };
+  if (rise < -1.2) return { text: 'A steep drop ahead. Take care.', slow: 0.9 };
+  return null;
+}

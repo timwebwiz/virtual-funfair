@@ -41,7 +41,7 @@ function cleanState(s) {
   return { m: MOODS.includes(s.m) ? s.m : 'neutral', tr: Math.min(1, Math.max(0, Number(s.tr) || 0)), tp: ['cold', 'hot'].includes(s.tp) ? s.tp : '', pu: !!s.pu, sp: !!s.sp, st: Math.min(1, Math.max(0, Number(s.st) || 0)), lk: Math.min(1.2, Math.max(-1.2, Number(s.lk) || 0)), fc: FOCUS.includes(s.fc) ? s.fc : 'focused', rx: REACT.includes(s.rx) ? s.rx : '', dz: Math.min(1, Math.max(0, Number(s.dz) || 0)) };
 }
 const OPT = { hairStyle: ['short', 'long', 'bun', 'mohawk', 'bald'], shirtStyle: ['short', 'long', 'hoodie'], pantsStyle: ['long', 'shorts'], hat: ['none', 'cap', 'beanie', 'tophat'], glasses: ['none', 'round', 'shades'], culture: ['wave', 'bow', 'namaste', 'handshake', 'nod'], interest: ['thrill', 'food', 'games', 'relaxing'], lang: LANGS, formal: ['casual', 'formal'], space: ['normal', 'close', 'wide'] };
-const REACT = ['ears', 'nose', 'sniff', 'fan', 'pucker', 'chew', 'squint', 'startle', 'burn'];
+const REACT = ['ears', 'nose', 'sniff', 'fan', 'pucker', 'chew', 'squint', 'startle', 'burn', 'wince', 'tremble'];
 const DEVICES = ['keyboard', 'touch', 'gamepad'];
 const FOCUS = ['focused', 'distracted', 'chatting', 'overloaded'];
 const hex = v => (/^#[0-9a-f]{6}$/i.test(v) ? v : '#888888');

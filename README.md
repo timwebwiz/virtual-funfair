@@ -13,3 +13,11 @@ Features: photo-based avatars, NPC security/medics/maintenance/visitors with pat
 - **Physical:** walk into crates to push them, **G** lifts or drops one (limited by strength). Wet ground makes you slide; sprinting into obstacles can make you stumble.
 - Traits are optional self-description and are not checked against anything real. NPCs ignore crates when path-finding.
 
+
+## Terrain, adaptation and crates
+
+- **Terrain balance:** two hills and two mud patches. Uphill slows you, steep/wet/muddy ground lowers a Balance score (shown in the status bar); low balance makes the avatar sway and stumble. Agility, level, load, injury and fatigue all matter.
+- **Cultural adaptation:** pick NPC greeting language (en/es/fr/pt/ja/hi), formality and personal-space distance in the customizer. NPCs greet and mirror your gesture accordingly and keep your preferred distance.
+- **Cognitive adaptation:** crowds, rain, night, hazards and fatigue raise mental load. When overloaded, the HUD dims and NPCs warn about hazards; focused players get fewer hints; Novices get fuller hints than Experts.
+- **Technological adaptation:** touch/keyboard detection (hint text), gamepad (left stick move, right stick camera, A jump, B lift/drop, X wave, Y cheer, RT/R1 sprint), reduced-motion support, slower updates on slow networks and an automatic Lite mode when frame rate is low.
+- **NPCs and crates:** NPCs path around crates you push into their way, and cleaners haul stray crates back to their home spots. Push three crates onto the yellow delivery pad for bonus XP.

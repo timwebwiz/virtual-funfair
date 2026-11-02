@@ -2,6 +2,8 @@
 import { empathyMethods } from './empathy.js';
 import { findPath, isBlocked, STATIONS, HOSPITAL, HOSP_DOOR, AMB_BAY, DEPOT, front } from './nav.js';
 import { maintMethods } from './maint.js';
+import { Crates, crateMethods, CRATE_R } from './stockroom.js';
+import { slopeAlong, onMud, steepness } from './public/terrain.js';
 const boothFront = i => { const a = i / 6 * Math.PI * 2; return [Math.cos(a) * 14, Math.sin(a) * 14]; };
 const SPOTS = {
   wheel: [-30, -22], carousel: [30, -12], booth0: boothFront(0), booth1: boothFront(1), booth2: boothFront(2),
@@ -38,7 +40,7 @@ const randomLook = () => ({
 export class World {
   constructor(players, emit) {
     this.players = players; this.emit = emit; // emit(msg) broadcasts to everyone
-    this.npcs = []; this.nextId = 1000;
+    this.npcs = []; this.nextId = 1000; this.crates = new Crates();
     this.weather = 'clear'; this.weatherT = 45; this.clock = 9 * 60; // minutes
     this.alert = 0; this.incidents = []; // {x,z,by,t}
     this.spawn('security', 'supervisor'); this.spawn('security', 'guard'); this.spawn('security', 'guard'); this.spawn('security', 'guard');
@@ -73,10 +75,20 @@ export class World {
     return pick(Object.entries(SPOTS).filter(([k]) => !closed(k)).map(([, v]) => v));
   }
   speak(n, text) { if (n.sayT > 0) return; n.say = text; n.sayT = 4; }
-  goTo(n, x, z) {
+  // movable obstacles (loose crates) that path searches must route around
+  crateBlocks(ignore) { return this.crates.list.filter(c => c.by == null && c.id !== ignore).map(c => ({ x: c.x, z: c.z, r: CRATE_R })); }
+  crateAhead(n, gx, gz) {
+    const vx = gx - n.x, vz = gz - n.z, L = Math.hypot(vx, vz) || 1;
+    return this.crates.list.some(c => {
+      if (c.by != null || c.id === n.haulId) return false;
+      const t = Math.max(0, Math.min(1, ((c.x - n.x) * vx + (c.z - n.z) * vz) / (L * L)));
+      return Math.hypot(n.x + vx * t - c.x, n.z + vz * t - c.z) < 0.8 && Math.hypot(c.x - n.x, c.z - n.z) < 3;
+    });
+  }
+  goTo(n, x, z, ignore) {
     x = Math.max(-72, Math.min(72, x)); z = Math.max(-72, Math.min(72, z));
     if (n.path && n.goalX !== undefined && Math.hypot(x - n.goalX, z - n.goalZ) < 1.2) return;
-    const r = findPath(n.x, n.z, x, z, n.role === 'ambulance' ? 2.4 : 0.9);
+    const r = findPath(n.x, n.z, x, z, n.role === 'ambulance' ? 2.4 : 0.9, this.crateBlocks(ignore));
     n.goalX = x; n.goalZ = z; n.path = r.path; n.wp = 0; n.snapped = r.snapped; n.arrived = false;
     n.tx = r.goal[0]; n.tz = r.goal[1];
     if (!r.path.length) n.arrived = true;
@@ -144,6 +156,7 @@ export class World {
   }
 
   update(dt) {
+    this.crateTick(dt);
     this.reactToPlayers(dt);
     // time & weather
     this.clock = (this.clock + dt * 2) % 1440; // 1 real sec = 2 game min
@@ -219,6 +232,14 @@ export class World {
     // gate: keep players/NPCs in bounds
     this.npcs.forEach(n => { n.x = Math.max(-72, Math.min(72, n.x)); n.z = Math.max(-72, Math.min(72, n.z)); });
     this.separate(dt);
+    for (const n of this.npcs) { // hard personal space around loose crates
+      if (n.role === 'ambulance') continue;
+      for (const c of this.crates.list) {
+        if (c.by != null) continue;
+        const d = dist(n, c), min = CRATE_R + 0.3;
+        if (d < min && d > 0.001) { const x = c.x + (n.x - c.x) / d * min, z = c.z + (n.z - c.z) / d * min; if (!isBlocked(x, z, 0.4)) { n.x = x; n.z = z; } }
+      }
+    }
     for (const p of this.players.values()) if (p.hospUntil && Date.now() > p.hospUntil) {
       p.hospUntil = 0; p.x = 0; p.z = 26;
       this.emit({ t: 'tp', id: p.id, x: 0, z: 26, lock: 0, text: 'You were discharged from Park Hospital. Take it easy!' });
@@ -230,11 +251,17 @@ export class World {
     if (['idle', 'talk', 'treat', 'watch', 'load', 'attend', 'work'].includes(n.state)) return;
     let gx = n.tx, gz = n.tz, last = true;
     if (n.path && n.wp < n.path.length) { [gx, gz] = n.path[n.wp]; last = n.wp === n.path.length - 1; }
+    n.repathT = (n.repathT || 0) - dt;
+    if (n.path && n.goalX !== undefined && n.role !== 'ambulance' && n.repathT <= 0 && this.crateAhead(n, gx, gz)) { // a crate was pushed into the way: walk around it
+      n.repathT = 1.5; const px = n.goalX, pz = n.goalZ; n.goalX = undefined; this.goTo(n, px, pz, n.haulId); return;
+    }
     const dx = gx - n.x, dz = gz - n.z, d = Math.hypot(dx, dz);
     if (d < (last ? 0.4 : 0.6)) { if (last) n.arrived = true; else n.wp++; return; }
     n.arrived = false;
     const run = (n.state === 'respond' || n.state === 'flee') ? 1.6 : 1;
-    const s = SPEED[n.role] * (n.spd || 1) * run * dt;
+    const sl = d > 0.01 ? slopeAlong(n.x, n.z, dx / d, dz / d) : 0;
+    const ground = Math.max(0.45, 1 - 1.3 * Math.max(0, sl) + 0.25 * Math.max(0, -sl)) * (onMud(n.x, n.z) ? 0.6 : 1) * (this.weather === 'rain' && steepness(n.x, n.z) > 0.1 ? 0.85 : 1);
+    const s = SPEED[n.role] * (n.spd || 1) * run * ground * dt;
     n.x += dx / d * Math.min(s, d); n.z += dz / d * Math.min(s, d);
     // turn smoothly towards heading
     const want = Math.atan2(dx, dz), diff = ((want - n.ry + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
@@ -515,10 +542,10 @@ export class World {
   snapshot() {
     return {
       t: 'npcs', ...this.maintSnapshot(), w: this.weather, c: Math.round(this.clock), a: Math.round(this.alert * 10) / 10,
-      n: this.npcs.map(n => ({ id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2), r: +n.ry.toFixed(2), d: n.down ? 1 : 0, s: n.say, e: n.siren ? 1 : 0, m: n.state === 'walk' || n.state === 'drive' || (n.state === 'dump') || n.state === 'respond' || n.state === 'flee' || n.state === 'shelter' ? 1 : 0 }))
+      n: this.npcs.map(n => ({ id: n.id, x: +n.x.toFixed(2), z: +n.z.toFixed(2), r: +n.ry.toFixed(2), d: n.down ? 1 : 0, s: n.say, e: n.siren ? 1 : 0, m: n.state === 'walk' || n.state === 'drive' || (n.state === 'dump') || n.state === 'respond' || n.state === 'flee' || n.state === 'shelter' || n.state === 'haul' || n.state === 'fetch' ? 1 : 0, g: n.gest || '' }))
     };
   }
   roster() { return this.npcs.map(n => ({ id: n.id, role: n.role, name: n.name, look: n.look })); }
   stationList() { return STATIONS; }
 }
-Object.assign(World.prototype, maintMethods, empathyMethods);
+Object.assign(World.prototype, maintMethods, empathyMethods, crateMethods);

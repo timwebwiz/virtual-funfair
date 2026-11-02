@@ -38,6 +38,9 @@ export const MOODS = ['neutral', 'happy', 'excited', 'sad', 'angry', 'tired', 'n
 export const CULTURES = ['wave', 'bow', 'namaste', 'handshake', 'nod'];
 export const INTERESTS = ['thrill', 'food', 'games', 'relaxing'];
 export const EMOTES = { wave: '👋', bow: '🙇', namaste: '🙏', handshake: '🤝', cheer: '🎉', dance: '💃', point: '👉', shrug: '🤷', nod: '🙂', stretch: '🥱', belly: '😋' };
+export const LANGS = { en: 'English', es: 'Español', fr: 'Français', pt: 'Português', ja: '日本語', hi: 'हिन्दी' };
+export const FORMAL = ['casual', 'formal'];
+export const SPACES = ['normal', 'close', 'wide'];
 export const TRAIT_RANGE = [1, 10];
 export const HEIGHT_RANGE = [130, 210], BUILD_RANGE = [0.8, 1.3];
 
@@ -45,7 +48,7 @@ export const defaultAvatar = () => ({
   skin: '#e0ac8c', hair: '#3a2a1a', hairStyle: 'short', shirt: '#3b82f6', shirtStyle: 'short',
   pants: '#334155', pantsStyle: 'long', shoes: '#222222', hat: 'none', accent: '#c0392b',
   glasses: 'none', backpack: false, height: 175, build: 1, face: null,
-  strength: 5, agility: 5, endurance: 5, mood: 'happy', culture: 'wave', interest: 'thrill', level: 0
+  strength: 5, agility: 5, endurance: 5, mood: 'happy', culture: 'wave', interest: 'thrill', level: 0, lang: 'en', formal: 'casual', space: 'normal'
 });
 
 const mat = (color, rough = 0.6) => new THREE.MeshStandardMaterial({ color, roughness: rough });
@@ -132,7 +135,8 @@ const parts = g => g.userData.parts || (g.userData.parts = Object.fromEntries(['
 const PI = Math.PI;
 
 // Full-body pose: gait, posture, mood, temperature, fatigue, injury, carrying and emotes.
-// s: {moving, speed, sprint, mood, tired(0-1), temp('cold'|'hot'|''), hurt, carry, push, stumble(0-1), look, emote, et}
+// s: {moving, speed, sprint, mood, tired(0-1), temp('cold'|'hot'|''), hurt, carry, push, stumble(0-1), look, emote, et,
+//     slope (rise per metre along travel), sway (0-1 instability), calm (reduced motion)}
 export function animateAvatar(g, t, s = {}) {
   const P = parts(g), mood = s.mood || 'neutral', tired = s.tired || 0;
   if (!P.body) return;
@@ -152,6 +156,12 @@ export function animateAvatar(g, t, s = {}) {
   if (s.push) { aL = aR = -1.4; lean += 0.3; }
   if (s.stumble) { lean += 0.7 * s.stumble; aL = aR = -1.2 * s.stumble; }
 
+  const sl = Math.max(-0.6, Math.min(0.6, s.slope || 0));
+  lean += sl * 0.9; // lean into an uphill, back on a downhill
+  if (s.moving && Math.abs(sl) > 0.12) bob -= Math.abs(sl) * 0.08; // knees bend on steep ground
+  const sway = s.sway || 0;
+  if (sway > 0.25) { aLz = -(0.5 + sway); aRz = 0.5 + sway; aL = aR = -0.2; bz += Math.sin(t * 9) * sway * 0.14; } // arms out to balance
+
   const e = s.emote, et = s.et || 0;
   if (e && !s.moving) {
     const env = Math.sin(Math.min(et / 2.5, 1) * PI);
@@ -169,6 +179,7 @@ export function animateAvatar(g, t, s = {}) {
   }
   P.armL.rotation.set(aL, 0, aLz); P.armR.rotation.set(aR, 0, aRz);
   P.legL.rotation.x = lL; P.legR.rotation.x = lR;
+  if (s.calm) { shake = 0; bob *= 0.2; bz *= 0.4; }
   P.body.rotation.set(lean, 0, bz + shake); P.body.position.y = bob;
   P.headPivot.rotation.set(hx, hy, hz);
 

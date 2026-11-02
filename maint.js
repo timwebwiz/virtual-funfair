@@ -79,7 +79,7 @@ export const maintMethods = {
     const cleaners = this.npcs.filter(n => n.duty === 'cleaner');
     if (cleaners.length < want) this.spawn('maintenance', 'cleaner');
     else if (cleaners.length > want) {
-      const x = cleaners.reverse().find(c => !c.task && c.state !== 'work');
+      const x = cleaners.reverse().find(c => !c.task && c.state !== 'work' && !c.haulId);
       if (x) this.npcs.splice(this.npcs.indexOf(x), 1);
     }
     this.cleanT -= dt;
@@ -98,6 +98,7 @@ export const maintMethods = {
     const home = front(DEPOT, 9);
     n.bag = n.bag || 0;
     const isTech = n.duty === 'technician';
+    if ((n.state === 'fetch' || n.state === 'haul') && this.haulStep(n)) return;
     const cur = n.task;
     const stillNeeded = t => !t ? false
       : t.type === 'ride' ? t.e.state === 'fault'
@@ -159,6 +160,7 @@ export const maintMethods = {
     }
     n.task = null;
     if (n.state === 'respond') { n.state = 'idle'; n.wait = 0; }
+    if (!isTech && n.bag < BAG && n.wait <= 0 && this.findStray(n)) return;
     if (!isTech && n.bag >= 3 && n.state !== 'dump') { n.state = 'dump'; n.wait = 2; return; }
 
     // routine: technicians inspect rides (rest at the depot at night), cleaners sweep the walkways

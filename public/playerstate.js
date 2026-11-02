@@ -71,3 +71,21 @@ export function effectiveMood({ base, hurt, down, tired, chatMood }) {
 
 // What the avatar does when left alone, based on its interest.
 export const IDLE_EMOTE = { thrill: 'cheer', food: 'belly', games: 'point', relaxing: 'stretch' };
+
+// ---- Terrain balance ----
+// Stability 0-1 from the ground, load, condition and skill. Low stability makes the avatar sway and stumble.
+export function balanceFor({ slope = 0, wet = false, mud = false, load = 0, hurt = false, tired = 0, sprint = false, agility = 5, level = 0 }) {
+  const risk = Math.abs(slope) * 1.6 + (wet ? 0.18 : 0) + (mud ? 0.3 : 0) + load * 0.25 + (hurt ? 0.3 : 0) + tired * 0.2 + (sprint ? 0.12 : 0) + (sprint && slope < -0.15 ? 0.15 : 0);
+  const skill = 0.5 + agility * 0.05 + level * 0.05;
+  return clamp(1 - risk * (1.25 - skill * 0.6), 0, 1);
+}
+// chance per second of tripping while moving at this stability
+export const stumbleRate = stab => (stab < 0.5 ? (0.5 - stab) * 0.5 : 0);
+// Speed multiplier for slope: uphill is slower, a gentle downhill slightly faster.
+export const slopeSpeed = slope => Math.max(0.45, 1 - 1.3 * Math.max(0, slope) + 0.25 * Math.max(0, -slope));
+
+// ---- Cognitive state ----
+// Mental load rises with crowds, bad weather, darkness, injury, fatigue and nearby hazards.
+export const cognitiveLoad = ({ crowd = 0, rain = false, night = false, hurt = false, tired = 0, hazards = 0 }) =>
+  clamp(crowd * 0.08 + (rain ? 0.15 : 0) + (night ? 0.1 : 0) + (hurt ? 0.25 : 0) + tired * 0.25 + hazards * 0.15, 0, 1);
+export const focusState = ({ idleFor = 0, chatting = false, load = 0 }) => (chatting ? 'chatting' : idleFor > 15 ? 'distracted' : load > 0.65 ? 'overloaded' : 'focused');

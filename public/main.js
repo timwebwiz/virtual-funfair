@@ -220,7 +220,7 @@ function start(name) {
   };
   const addNpc = r => {
     if (npcs.has(r.id)) return;
-    const g = r.role === 'ambulance' ? buildAmbulance() : buildAvatar(r.look); const tg = nameTag(r.name); if (r.role === 'ambulance') tg.position.y = 3.4; g.add(tg); const b = bubble(); if (r.role === 'ambulance') b.position.y = 4; g.add(b);
+    const g = r.role === 'ambulance' ? buildAmbulance() : buildAvatar({ ...r.look, cgi: r.id + 1 }); const tg = nameTag(r.name); if (r.role === 'ambulance') tg.position.y = 3.4; g.add(tg); const b = bubble(); if (r.role === 'ambulance') b.position.y = 4; g.add(b);
     Object.assign(g.userData, { tx: 0, tz: 0, try: 0, moving: 0, role: r.role, siren: 0 });
     scene.add(g); npcs.set(r.id, { g, b, init: false });
   };

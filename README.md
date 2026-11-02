@@ -21,3 +21,4 @@ Features: photo-based avatars, NPC security/medics/maintenance/visitors with pat
 - **Cognitive adaptation:** crowds, rain, night, hazards and fatigue raise mental load. When overloaded, the HUD dims and NPCs warn about hazards; focused players get fewer hints; Novices get fuller hints than Experts.
 - **Technological adaptation:** touch/keyboard detection (hint text), gamepad (left stick move, right stick camera, A jump, B lift/drop, X wave, Y cheer, RT/R1 sprint), reduced-motion support, slower updates on slow networks and an automatic Lite mode when frame rate is low.
 - **NPCs and crates:** NPCs path around crates you push into their way, and cleaners haul stray crates back to their home spots. Push three crates onto the yellow delivery pad for bonus XP.
+- **NPC faces:** every NPC gets a procedurally generated CGI face (shaded skin, glossy eyes, brows, nose, lips) unique per NPC.

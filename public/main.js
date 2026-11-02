@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateAvatar, EMOTES } from './avatar.js';
-import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE } from './playerstate.js';
+import { LEVELS, levelFor, statsFor, Vitals, tripChance, feelTemp, moodFromChat, effectiveMood, IDLE_EMOTE, balanceFor, stumbleRate, slopeSpeed, cognitiveLoad, focusState } from './playerstate.js';
+import { HILLS, MUD, heightAt, slopeAlong, onMud } from './terrain.js';
+import { detectDevice, pollGamepad, QualityGovernor } from './device.js';
+
+const dev = detectDevice();
 import { initCustomizer } from './customizer.js';
 
 const $ = id => document.getElementById(id);
@@ -66,6 +70,22 @@ function start(name) {
   ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
   const plaza = new THREE.Mesh(new THREE.CircleGeometry(22, 64), new THREE.MeshStandardMaterial({ color: '#d9c9a3' }));
   plaza.rotation.x = -Math.PI / 2; plaza.position.y = 0.01; plaza.receiveShadow = true; scene.add(plaza);
+
+  // hills (smooth cosine bumps matching terrain.js) and mud patches
+  for (const o of HILLS) {
+    const pts = []; for (let i = 0; i <= 24; i++) { const r = o.r * (1 - i / 24); pts.push(new THREE.Vector2(r, o.h * 0.5 * (1 + Math.cos(Math.PI * r / o.r)))); }
+    const hill = new THREE.Mesh(new THREE.LatheGeometry(pts, 48), new THREE.MeshStandardMaterial({ color: '#4f9a4f' }));
+    hill.position.set(o.x, 0, o.z); hill.receiveShadow = true; hill.castShadow = true; scene.add(hill);
+  }
+  for (const o of MUD) {
+    const mud = new THREE.Mesh(new THREE.CircleGeometry(o.r, 32), new THREE.MeshStandardMaterial({ color: '#6b4a2b', roughness: 1 }));
+    mud.rotation.x = -Math.PI / 2; mud.position.set(o.x, 0.02 + heightAt(o.x, o.z), o.z); mud.receiveShadow = true; scene.add(mud);
+  }
+  const buildPad = p => {
+    const pad = new THREE.Mesh(new THREE.BoxGeometry(p.r * 2, 0.06, p.r * 2), new THREE.MeshStandardMaterial({ color: '#ffd400', emissive: '#7a6500' }));
+    pad.position.set(p.x, 0.04, p.z); pad.receiveShadow = true; scene.add(pad);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), new THREE.MeshStandardMaterial({ color: '#555' })); post.position.set(p.x - p.r, 1.1, p.z - p.r); scene.add(post);
+  };
 
   // Ferris wheel
   const wheel = new THREE.Group();
@@ -204,7 +224,7 @@ function start(name) {
     Object.assign(g.userData, { tx: 0, tz: 0, try: 0, moving: 0, role: r.role, siren: 0 });
     scene.add(g); npcs.set(r.id, { g, b, init: false });
   };
-  const setDown = (g, d) => { g.rotation.x = d ? -Math.PI / 2 : 0; g.position.y = d ? 0.25 : 0; };
+  const setDown = (g, d) => { g.rotation.x = d ? -Math.PI / 2 : 0; g.userData.down = !!d; };
   const sky = { clear: new THREE.Color('#87ceeb'), rain: new THREE.Color('#6b7785') };
   let weather = 'clear', clockMin = 540, rainTarget = 0;
   const rain = new THREE.Points(
@@ -242,7 +262,7 @@ function start(name) {
 
   // ---------- Player state: crates, vitals, emotes, social ----------
   const crates = new Map();
-  const holder = id => (id === myId ? me : others.get(id));
+  const holder = id => (typeof id === 'string' ? (npcs.get(+id.slice(1)) || {}).g : id === myId ? me : others.get(id));
   const attach = m => { const h = holder(m.userData.by); if (!h) return; m.removeFromParent(); m.position.set(0, 1.0, 0.3 + m.userData.sz / 2); m.rotation.set(0, 0, 0); h.add(m); };
   function reattach() { crates.forEach(m => m.userData.by != null && attach(m)); }
   const addCrate = c => {
@@ -264,6 +284,7 @@ function start(name) {
   const emoteState = (o, now) => { if (!o) return {}; const et = (now - o.at) / 1000; return et < emoteLen(o.e) ? { emote: o.e, et } : {}; };
   const carryingId = () => { for (const m of crates.values()) if (m.userData.by === myId) return m; return null; };
   const toggleCarry = () => { if (meDown || ws.readyState !== 1) return; ws.send(JSON.stringify({ t: carryingId() ? 'drop' : 'grab' })); };
+  if (dev.kind === 'touch') $('hud').textContent = 'Joystick: move · drag: look · 📦 button: lift/drop crates · 😀: emotes';
   $('hud').insertAdjacentHTML('afterend', '<div id="vitals" style="position:fixed;bottom:8px;left:50%;transform:translateX(-50%);background:#000a;color:#fff;padding:4px 12px;border-radius:12px;font:13px sans-serif;z-index:3;white-space:nowrap"></div><div id="emotes" style="position:fixed;bottom:72px;right:12px;display:none;flex-wrap:wrap;gap:6px;max-width:260px;justify-content:flex-end;z-index:4"></div><button id="emoBtn" aria-label="Emotes" style="position:fixed;bottom:16px;right:12px;width:52px;height:52px;border-radius:50%;font-size:24px;padding:0;z-index:4">😀</button>');
   const bar = $('emotes');
   Object.entries(EMOTES).forEach(([k, ic], i) => { const b = document.createElement('button'); b.textContent = ic; b.title = `${k}${i < 10 ? ' (' + ((i + 1) % 10) + ')' : ''}`; b.style.cssText = 'width:44px;height:44px;font-size:22px;padding:0;border-radius:50%'; b.onclick = () => doEmote(k); bar.appendChild(b); });
@@ -272,16 +293,16 @@ function start(name) {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}`);
   let myId = null;
-  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name, avatar }));
+  ws.onopen = () => ws.send(JSON.stringify({ t: 'join', name, avatar, dev: dev.kind }));
   ws.onmessage = e => {
     const m = JSON.parse(e.data);
-    if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); }
+    if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); if (m.pad) buildPad(m.pad); }
     else if (m.t === 'roster') m.npcs.forEach(addNpc);
     else if (m.t === 'npcs') {
       weather = m.w; clockMin = m.c; syncLitter(m.l || []); rideFault = m.r || [0, 0];
       $('cl').textContent = m.cl; { const names = ['ferris wheel', 'carousel'], f = rideFault.map((v, i) => v ? names[i] + (v === 2 ? ' (MAJOR FAULT)' : ' (closed)') : null).filter(Boolean); $('rd').textContent = f.length ? 'Closed: ' + f.join(', ') : 'Rides: all running'; $('rd').style.color = f.length ? '#ffb347' : ''; } $('hud').dataset.alert = m.a;
       const live = new Set();
-      m.n.forEach(s => { const o = npcs.get(s.id); if (!o) return; live.add(s.id); const u = o.g.userData; if (!o.init) { o.g.position.set(s.x, 0, s.z); o.init = true; } Object.assign(u, { tx: s.x, tz: s.z, try: s.r, moving: s.m, siren: s.e }); setBubble(o.b, s.s); setDown(o.g, s.d); });
+      m.n.forEach(s => { const o = npcs.get(s.id); if (!o) return; live.add(s.id); const u = o.g.userData; if (!o.init) { o.g.position.set(s.x, 0, s.z); o.init = true; } Object.assign(u, { tx: s.x, tz: s.z, try: s.r, moving: s.m, siren: s.e }); if (s.g && s.g !== o.gest) o.emote = { e: s.g, at: performance.now() }; o.gest = s.g; setBubble(o.b, s.s); setDown(o.g, s.d); });
       npcs.forEach((o, id) => { if (!live.has(id)) { scene.remove(o.g); npcs.delete(id); } });
     }
     else if (m.t === 'radio') { const r = $('radio'), d = document.createElement('div'); d.textContent = `${m.from}: ${m.text}`; r.appendChild(d); while (r.children.length > 7) r.removeChild(r.children[1]); }
@@ -295,6 +316,7 @@ function start(name) {
     else if (m.t === 'crate') { const c = crates.get(m.id); if (c && c.userData.by == null) { c.userData.x = m.x; c.userData.z = m.z; c.position.set(m.x, c.userData.sz / 2, m.z); } }
     else if (m.t === 'carry') { const c = crates.get(m.id); if (c) { if (m.by == null) putCrate(c, m.x, m.z); else { c.userData.by = m.by; attach(c); if (m.by === myId) $('hud').textContent = `You lifted a ${m.w} kg crate. Press G to put it down.`; } } }
     else if (m.t === 'note') $('hud').textContent = m.text;
+    else if (m.t === 'bonus') { xp += m.xp; try { localStorage.setItem('vf-xp', String(Math.floor(xp))); } catch {} $('hud').textContent = m.text; }
     else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
     else if (m.t === 'chat') { $('hud').textContent = `${m.id === myId ? name : 'Player ' + m.id}: ${m.text}`; }
   };
@@ -318,7 +340,7 @@ function start(name) {
     if (k === 'r') callMaint();
     if (k === 'l') dropLitter();
   });
-  const jump = () => { if (me.position.y <= 0.001 && !meDown && !meHurt && !vitals.winded && vitals.stamina > 10) { vy = stats.jump * (carryingId() ? 0.7 : 1); vitals.stamina -= 8; } };
+  const jump = () => { if (me.position.y - heightAt(me.position.x, me.position.z) <= 0.001 && !meDown && !meHurt && !vitals.winded && vitals.stamina > 10) { vy = stats.jump * (carryingId() ? 0.7 : 1); vitals.stamina -= 8; } };
   const shout = () => { if (meDown) return; act('shout'); $('hud').textContent = 'You shouted! Security may come over.'; };
   const faint = () => { if (meDown) return; act('faint'); meDown = true; setDown(me, true); $('hud').textContent = 'You fainted. Wait for a medic.'; };
   const callMaint = () => { act('maint'); $('hud').textContent = 'You called maintenance. Help is on the way.'; };
@@ -348,7 +370,10 @@ function start(name) {
   addEventListener('pointerup', () => dragging = false);
   addEventListener('pointermove', e => { if (dragging) { camYaw -= (e.clientX - lastX) * 0.006; lastX = e.clientX; } });
   cv.addEventListener('wheel', e => { camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.01, 4, 16); });
-  let speedNow = 0;
+  let load = 0, focus = 'focused', speedNow = 0, slopeNow = 0, mudNow = false, stab = 1, lite = 0, camBase = 0;
+  const gov = new QualityGovernor(dev.lowEnd ? 1 : 0), sendEvery = dev.slowNet ? 0.15 : 0.05;
+  const applyQuality = q => { renderer.setPixelRatio(q >= 1 ? 1 : Math.min(devicePixelRatio, 2)); sun.castShadow = q < 1; if (q >= 2) scene.fog.far = 90; lite = q; };
+  if (dev.lowEnd) applyQuality(1);
 
   // ---------- Loop ----------
   const clock = new THREE.Clock(); let sent = 0;
@@ -371,8 +396,10 @@ function start(name) {
       dx /= Math.max(len, 1); dz /= Math.max(len, 1);
       const c = Math.cos(camYaw), s = Math.sin(camYaw), wx = dx * c + dz * s, wz = -dx * s + dz * c; // camera-relative
       const load = carried ? Math.max(0.5, 1 - carried.userData.w / (stats.carryKg * 2.4)) : 1;
-      const target = (meHurt ? 0.5 : 1) * stats.walk * (sprinting ? stats.sprintMul : 1) * Math.sqrt(Math.max(me.userData.top, 1.4) / 2) * Math.min(len, 1) * load * pushF * (vitals.stumble > 0 ? 0.4 : 1) * (vitals.winded ? 0.75 : 1);
-      const grip = weather === 'rain' ? 3 + stats.grip * 0.5 : 12; // wet ground: slower to start and stop
+      const target0 = (meHurt ? 0.5 : 1) * stats.walk * (sprinting ? stats.sprintMul : 1) * Math.sqrt(Math.max(me.userData.top, 1.4) / 2) * Math.min(len, 1) * load * pushF * (vitals.stumble > 0 ? 0.4 : 1) * (vitals.winded ? 0.75 : 1);
+      slopeNow = slopeAlong(me.position.x, me.position.z, wx, wz); mudNow = onMud(me.position.x, me.position.z);
+      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1);
+      const grip = weather === 'rain' || mudNow ? 3 + stats.grip * 0.5 : 12; // wet ground: slower to start and stop
       speedNow += (target - speedNow) * Math.min(1, dt * grip);
       const px = me.position.x, pz = me.position.z;
       me.position.x = THREE.MathUtils.clamp(px + wx * speedNow * dt, -75, 75);
@@ -381,7 +408,7 @@ function start(name) {
       collide(me.position);
       if (sprinting && Math.hypot(me.position.x - bx, me.position.z - bz) > 0.1 && Math.random() < tripChance(stats) * dt * 10 && vitals.trip()) { speedNow *= 0.3; $('hud').textContent = 'You stumbled over an obstacle!'; }
       turn(me, Math.atan2(wx, wz), 0.25);
-    } else speedNow = 0;
+    } else { speedNow = 0; slopeNow = 0; mudNow = onMud(me.position.x, me.position.z); }
 
     // other players: keep personal space (soft collision)
     others.forEach(g => { const ox = me.position.x - g.position.x, oz = me.position.z - g.position.z, od = Math.hypot(ox, oz); if (od < 0.8 && od > 0.001) { const k = (0.8 - od) * 0.5 / od; me.position.x += ox * k; me.position.z += oz * k; } });
@@ -399,7 +426,13 @@ function start(name) {
     });
     if (pushing && now - lastCrateSent > 100 && ws.readyState === 1) { lastCrateSent = now; crates.forEach(m => { if (m.userData.dirty) { m.userData.dirty = false; ws.send(JSON.stringify({ t: 'crate', id: m.userData.id, x: m.userData.x, z: m.userData.z })); } }); }
 
-    vy -= 18 * dt; me.position.y = Math.max(0, me.position.y + vy * dt); if (me.position.y === 0) vy = 0;
+    const floorY = heightAt(me.position.x, me.position.z) + (meDown ? 0.25 : 0);
+    vy -= 18 * dt; me.position.y = Math.max(floorY, me.position.y + vy * dt); if (me.position.y === floorY) vy = 0;
+    const grounded = me.position.y - floorY < 0.05;
+    stab = balanceFor({ slope: slopeNow, wet: weather === 'rain', mud: mudNow, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, hurt: meHurt, tired: vitals.tired ? 1 : 0, sprint: sprinting, agility: avatar.agility, level: avatar.level });
+    if (moving && !frozen && grounded && Math.random() < stumbleRate(stab) * dt && vitals.trip()) { speedNow *= 0.3; $('hud').textContent = mudNow ? 'You slipped in the mud!' : 'You lost your footing on the slope!'; }
+    const q = gov.sample(dt); if (q != null) applyQuality(q);
+    { const gp = pollGamepad(); if (gp) { joy.x = gp.x; joy.y = gp.y; camYaw -= gp.cam * dt * 2.5; keys.shift = gp.sprint; if (gp.jump) jump(); if (gp.grab) toggleCarry(); if (gp.wave) doEmote('wave'); if (gp.emotes) doEmote('cheer'); } }
     if (moving && !frozen) meEmote = null;
 
     // social awareness: look at / greet the nearest player, wander gaze when distracted
@@ -414,7 +447,7 @@ function start(name) {
     if (!moving && !frozen && nearId == null && idleFor > 12 && !meEmote && now - lastIdleEmote > 25000) { lastIdleEmote = now; doEmote(IDLE_EMOTE[avatar.interest] || 'stretch'); }
 
     const mood = effectiveMood({ base: avatar.mood, hurt: meHurt, down: meDown, tired: vitals.tired, chatMood: now < chatMoodUntil ? chatMood : null });
-    animateAvatar(me, t, { moving: moving && !frozen && me.position.y < 0.05, speed: sprinting ? 11 : 8, sprint: sprinting, mood, tired: vitals.tired, temp, hurt: meHurt, carry: !!carried, push: pushing, stumble: vitals.stumble, look: lkS, ...emoteState(meEmote, now) });
+    animateAvatar(me, t, { moving: moving && !frozen && grounded, speed: sprinting ? 11 : 8, sprint: sprinting, mood, tired: vitals.tired, temp, hurt: meHurt, carry: !!carried, push: pushing, stumble: vitals.stumble, look: lkS, slope: slopeNow, sway: Math.max(0, 1 - stab), calm: dev.reduceMotion, ...emoteState(meEmote, now) });
 
     // experience: playing time raises the skill level
     xp += dt; xpSave += dt;
@@ -422,11 +455,23 @@ function start(name) {
     const lv = levelFor(xp);
     if (lv !== avatar.level) { avatar.level = lv; saveAvatar(); stats = stats0(); onAvatarChange(); $('hud').textContent = `Level up! You are now ${LEVELS[lv]}${stars(lv)}: more stamina and agility.`; }
     vitalsT -= dt;
-    if (vitalsT <= 0) { vitalsT = 0.25; const focus = document.activeElement === chat ? 'Chatting' : idleFor > 15 ? 'Distracted' : 'Focused'; $('vitals').textContent = `${LEVELS[avatar.level]}${stars(avatar.level)} · Stamina ${'█'.repeat(Math.round(vitals.stamina / 10))}${'░'.repeat(10 - Math.round(vitals.stamina / 10))} · ${mood} · ${focus}${temp ? ' · ' + (temp === 'cold' ? '🥶 cold' : '🥵 hot') : ''}${meHurt ? ' · 🩹 injured' : ''}`; }
-    if (t - sent > 0.05 && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, y: me.position.y, z: me.position.z, ry: me.rotation.y, s: { m: mood, tr: vitals.tired, tp: temp, pu: pushing, sp: sprinting, st: vitals.stumble, lk: lkS } })); }
+    if (vitalsT <= 0) {
+      vitalsT = 0.25;
+      let hazards = 0; litterMeshes.forEach(l => { if (Math.hypot(l.position.x - me.position.x, l.position.z - me.position.z) < 6) hazards++; });
+      const night = clockMin < 360 || clockMin > 1200;
+      load = cognitiveLoad({ crowd: others.size + [...npcs.values()].filter(o => Math.hypot(o.g.position.x - me.position.x, o.g.position.z - me.position.z) < 10).length, rain: weather === 'rain', night, hurt: meHurt, tired: vitals.tired ? 1 : 0, hazards });
+      focus = focusState({ idleFor, chatting: document.activeElement === chat, load });
+      const calm = focus === 'overloaded' || dev.small;
+      $('radio').style.opacity = calm ? 0.25 : 1; $('park').style.opacity = calm ? 0.5 : 1;
+      const bal = stab > 0.75 ? 'steady' : stab > 0.5 ? 'wobbly' : 'unstable';
+      const label = { focused: 'Focused', distracted: 'Distracted', chatting: 'Chatting', overloaded: 'Overloaded' }[focus];
+      $('vitals').textContent = `${LEVELS[avatar.level]}${stars(avatar.level)} · Stamina ${'█'.repeat(Math.round(vitals.stamina / 10))}${'░'.repeat(10 - Math.round(vitals.stamina / 10))} · ${mood} · ${label} · Balance ${bal}${mudNow ? ' (mud)' : Math.abs(slopeNow) > 0.15 ? (slopeNow > 0 ? ' (uphill)' : ' (downhill)') : ''}${temp ? ' · ' + (temp === 'cold' ? '🥶 cold' : '🥵 hot') : ''}${meHurt ? ' · 🩹 injured' : ''}${lite ? ' · Lite mode' : ''}`;
+    }
+    crates.forEach(m => { if (m.parent === scene) m.position.y = heightAt(m.position.x, m.position.z) + m.userData.sz / 2; });
+    if (t - sent > sendEvery && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, y: me.position.y, z: me.position.z, ry: me.rotation.y, s: { m: mood, tr: vitals.tired, tp: temp, pu: pushing, sp: sprinting, st: vitals.stumble, lk: lkS, fc: focus } })); }
     others.forEach((g, id) => {
       const u = g.userData, d = Math.hypot(u.tx - g.position.x, u.tz - g.position.z);
-      g.position.x += (u.tx - g.position.x) * 0.2; g.position.z += (u.tz - g.position.z) * 0.2; g.position.y += ((u.ty || 0) - g.position.y) * 0.3;
+      g.position.x += (u.tx - g.position.x) * 0.2; g.position.z += (u.tz - g.position.z) * 0.2; g.position.y += ((u.ty || 0) + (u.down ? 0.25 : 0) - g.position.y) * 0.3;
       turn(g, u.try, 0.3);
       const o = u.s || {}, mv = d > 0.02; if (mv) u.emote = null;
       animateAvatar(g, t, { moving: mv, speed: o.sp ? 11 : 8, sprint: o.sp, mood: o.m, tired: o.tr, temp: o.tp, hurt: u.hurt, carry: [...crates.values()].some(c => c.userData.by === id), push: o.pu, stumble: o.st, look: o.lk, ...emoteState(u.emote, performance.now()) });
@@ -435,14 +480,15 @@ function start(name) {
       const g = o.g, u = g.userData, d = Math.hypot(u.tx - g.position.x, u.tz - g.position.z);
       g.position.x += (u.tx - g.position.x) * 0.25; g.position.z += (u.tz - g.position.z) * 0.25;
       if (u.role === 'ambulance') { turn(g, u.try, 0.15); (u.lights || []).forEach((l, i) => l.material.emissiveIntensity = u.siren && Math.sin(t * 14 + i * Math.PI) > 0 ? 3 : 0); }
-      else { turn(g, u.try, 0.2); animateAvatar(g, t, { moving: u.moving && d > 0.02 }); }
+      else { turn(g, u.try, 0.2); animateAvatar(g, t, { moving: u.moving && d > 0.02, carry: [...crates.values()].some(c => c.userData.by === 'n' + o.id), calm: dev.reduceMotion, ...(u.moving && d > 0.02 ? {} : emoteState(o.emote, performance.now())) }); }
+      g.position.y = heightAt(g.position.x, g.position.z) + (u.down ? 0.25 : 0);
     });
     const night = clockMin < 360 || clockMin > 1200, dusk = (clockMin > 1020 && clockMin <= 1200) || (clockMin >= 360 && clockMin < 480);
     const lit = night ? 0.25 : dusk ? 0.6 : 1;
     sun.intensity = 2.2 * lit * (weather === 'rain' ? 0.5 : 1);
     const target = night ? new THREE.Color('#0b1030') : weather === 'rain' ? sky.rain : dusk ? new THREE.Color('#ff9a6b') : sky.clear;
     scene.background.lerp(target, 0.02); scene.fog.color.copy(scene.background);
-    rain.visible = weather === 'rain';
+    rain.visible = weather === 'rain' && lite < 2;
     if (rain.visible) { rain.position.set(me.position.x, 0, me.position.z); const p = rain.geometry.attributes.position; for (let i = 0; i < p.count; i++) { let y = p.getY(i) - dt * 18; if (y < 0) y = 30; p.setY(i, y); } p.needsUpdate = true; }
     if (!rideFault[0]) wheel.rotation.z += dt * 0.15;
     cabins.forEach(c => c.rotation.z = -wheel.rotation.z);

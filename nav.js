@@ -70,8 +70,15 @@ class Heap {
 const DIRS = [[1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1], [1, 1, 1.414], [1, -1, 1.414], [-1, 1, 1.414], [-1, -1, 1.414]];
 
 // returns { path: [[x,z],...] (excluding start), goal: [x,z] (snapped to a reachable free spot), snapped }
-export function findPath(sx, sz, gx, gz, margin = 0.9) {
-  const g = grid(margin);
+export function findPath(sx, sz, gx, gz, margin = 0.9, extra = []) {
+  let g = grid(margin);
+  if (extra.length) { // movable obstacles (crates): block the cells they cover for this search only
+    g = g.slice();
+    for (const c of extra) {
+      const r = (c.r || 0.6) + margin * 0.5, i0 = cell(c.x - r), i1 = cell(c.x + r), j0 = cell(c.z - r), j1 = cell(c.z + r);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (Math.hypot(MIN + i + 0.5 - c.x, MIN + j + 0.5 - c.z) < r + 0.5) g[j * N + i] = 1;
+    }
+  }
   const goalCell = nearestFree(g, gx, gz), startCell = nearestFree(g, sx, sz);
   if (!goalCell || !startCell) return { path: [], goal: [sx, sz], snapped: true };
   const goalFree = free(g, gx, gz);

@@ -1,4 +1,6 @@
 import * as THREE from 'three';
+import { ITEMS, nearestItem, useItem, beautyAt, beautyText, muralSpec, culturalRead, normCheck, cutsInLine } from './items.js';
+import { Physio, hrZone, feeling, needsCalm } from './physio.js';
 import { Voice, voiceLevel, intelligibility, heardAs, Memory, recallText, BAD, Learning, predictContact, secondsToWinded, forecast, adaptPace, strategyOf, decaySlips } from './mind.js';
 import { topDrive, DRIVE_TEXT, motiveOf, Goals, Reinforcement, moralCheck, helping, Curiosity, cellOf, curiousGlance, attention, empathicNudge } from './drive.js';
 import { Body, climate, easePressure, pressureTrend, vibrationAt, fieldAt, compass, limbs, bodyState, bodyNotice } from './body.js';
@@ -92,6 +94,17 @@ function start(name) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), new THREE.MeshStandardMaterial({ color: '#555' })); post.position.set(p.x - p.r, 1.1, p.z - p.r); scene.add(post);
   };
 
+  // usable objects: fountain, strength tester, bench, mural
+  ITEMS.forEach(it => {
+    const g = new THREE.Group(); g.position.set(it.x, 0, it.z);
+    const stone = new THREE.MeshStandardMaterial({ color: '#b8b8c0' });
+    if (it.id === 'fountain') { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.9, 0.5, 20), stone); b.position.y = 0.25; const w = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.05, 20), new THREE.MeshStandardMaterial({ color: '#4fc3f7', emissive: '#0a3a55' })); w.position.y = 0.52; const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.9, 10), stone); sp.position.y = 0.9; g.add(b, w, sp); }
+    else if (it.id === 'bell') { const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.2, 0.9), new THREE.MeshStandardMaterial({ color: '#8a5a2b' })); base.position.y = 0.1; const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 8), new THREE.MeshStandardMaterial({ color: '#c0392b' })); pole.position.y = 1.4; const bell = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshStandardMaterial({ color: '#ffd166', metalness: 0.8, roughness: 0.3 })); bell.position.y = 2.7; g.add(base, pole, bell); }
+    else if (it.id === 'bench') { const wood = new THREE.MeshStandardMaterial({ color: '#8b5a2b' }); const seat = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 0.8), wood); seat.position.y = 0.5; const back = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.6, 0.1), wood); back.position.set(0, 0.85, -0.38); const l1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.7), stone), l2 = l1.clone(); l1.position.set(-1.1, 0.25, 0); l2.position.set(1.1, 0.25, 0); g.add(seat, back, l1, l2); }
+    else { const c = document.createElement('canvas'); c.width = 512; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#f5efe0'; x.fillRect(0, 0, 512, 256); muralSpec(new Date().getDate() * 97 + 13).forEach(m => { x.fillStyle = m.c; x.beginPath(); if (m.round) x.arc(m.x * 512, m.y * 256, m.s * 256, 0, 7); else x.rect(m.x * 480, m.y * 220, m.s * 512, m.s * 300); x.fill(); }); const t = new THREE.CanvasTexture(c); const w = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 0.3), new THREE.MeshStandardMaterial({ map: t })); w.position.y = 1.5; g.add(w); }
+    scene.add(g);
+  });
+
   // Ferris wheel
   const wheel = new THREE.Group();
   const ring = new THREE.Mesh(new THREE.TorusGeometry(10, 0.25, 12, 64), new THREE.MeshStandardMaterial({ color: '#e63946', metalness: 0.5 }));
@@ -156,7 +169,7 @@ function start(name) {
   const makePlayer = p => {
     const g = buildAvatar(p.avatar || defaultAvatar());
     tagged(g, p.name + stars(p.avatar && p.avatar.level)); g.position.set(p.x, 0, p.z);
-    g.userData = { tx: p.x, tz: p.z, try: p.ry, moving: false, name: p.name };
+    g.userData = { tx: p.x, tz: p.z, try: p.ry, moving: false, name: p.name, av: p.avatar || {} };
     scene.add(g); others.set(p.id, g); return g;
   };
 
@@ -323,7 +336,7 @@ function start(name) {
     else if (m.t === 'hurt') { const og = others.get(m.id); if (og) og.userData.hurt = m.v; if (m.id === myId) { meHurt = m.v; $('hud').textContent = m.v ? 'You are injured.' : 'A medic treated your injury.'; } }
     else if (m.t === 'down') { if (m.id === myId) { meDown = m.v; setDown(me, m.v); if (!m.v) { meHurt = false; $('hud').textContent = 'A medic helped you up.'; }; } else { const g = others.get(m.id); if (g) setDown(g, m.v); } }
     else if (m.t === 'join') makePlayer(m.player);
-    else if (m.t === 'avatar') { const old = others.get(m.id); if (old) { const u = old.userData, p = old.position.clone(), r = old.rotation.y; scene.remove(old); const g = buildAvatar(m.avatar); tagged(g, m.name + stars(m.avatar.level)); g.position.copy(p); g.rotation.y = r; g.userData = u; scene.add(g); others.set(m.id, g); reattach(); } }
+    else if (m.t === 'avatar') { const old = others.get(m.id); if (old) { const u = old.userData, p = old.position.clone(), r = old.rotation.y; scene.remove(old); const g = buildAvatar(m.avatar); tagged(g, m.name + stars(m.avatar.level)); g.position.copy(p); g.rotation.y = r; u.av = m.avatar; g.userData = u; scene.add(g); others.set(m.id, g); reattach(); } }
     else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, ty: m.y || 0, tz: m.z, try: m.ry, s: m.s }); }
     else if (m.t === 'emote') { const g = others.get(m.id); if (g) { g.userData.emote = { e: m.e, at: performance.now() }; const me2 = emoteState(meEmote, performance.now()); if (m.e === 'handshake' && me2.emote === 'handshake' && Math.hypot(g.position.x - me.position.x, g.position.z - me.position.z) < 3.5) $('hud').textContent = `🤝 You shook hands with ${g.userData.name}!`; } }
     else if (m.t === 'crate') { const c = crates.get(m.id); if (c && c.userData.by == null) { c.userData.x = m.x; c.userData.z = m.z; c.position.set(m.x, c.userData.sz / 2, m.z); } }
@@ -353,9 +366,11 @@ function start(name) {
     if (k === 'c') critical();
     if (k === 'r') callMaint();
     if (k === 'l') dropLitter();
+    if (k === 'u') useNearest();
+    if (k === 'b') breathe();
   });
   const jump = () => { if (me.position.y - heightAt(me.position.x, me.position.z) <= 0.001 && !meDown && !meHurt && !vitals.winded && vitals.stamina > 10) { vy = stats.jump * (carryingId() ? 0.7 : 1); vitals.stamina -= 8; } };
-  const shout = () => { if (meDown) return; act('shout'); voice.say('shout'); const vt = voice.tone('shout'); tone(vt.f, 0.25, vt.v, 0); $('hud').textContent = voice.hoarse ? 'You shouted, but your voice cracks. You are getting hoarse.' : 'You shouted! Security may come over.'; };
+  const shout = () => { if (meDown) return; act('shout'); phys.spike(0.25); { const o = [...others.values()].map(g => ({ g, d: Math.hypot(g.position.x - me.position.x, g.position.z - me.position.z) })).sort((a, b) => a.d - b.d)[0]; const av = o && o.g.userData.av; const nc = o && av && normCheck({ shouting: true, dist: o.d, other: av }); if (nc) guilt(3, nc.text); } voice.say('shout'); const vt = voice.tone('shout'); tone(vt.f, 0.25, vt.v, 0); $('hud').textContent = voice.hoarse ? 'You shouted, but your voice cracks. You are getting hoarse.' : 'You shouted! Security may come over.'; };
   const faint = () => { if (meDown) return; act('faint'); meDown = true; setDown(me, true); $('hud').textContent = 'You fainted. Wait for a medic.'; };
   const callMaint = () => { act('maint'); $('hud').textContent = 'You called maintenance. Help is on the way.'; };
   // ---- senses: taste, touch, audio ----
@@ -365,6 +380,29 @@ function start(name) {
   const goals = new Goals(ds.goals), rein = new Reinforcement(ds.rein), cur = new Curiosity(ds.seen), poiSeen = new Set(ds.poi || []);
   const POIS = [...SPOTS.map(p => ({ id: p.id, name: p.name, x: p.x, z: p.z, r: 5 })), { id: 'ferris', name: 'ferris wheel', x: -30, z: -30, r: 14 }, { id: 'carousel', name: 'carousel', x: 30, z: -20, r: 10 }];
   const helpedSet = new Map(), clamp01 = v => Math.min(1, Math.max(0, v));
+  const phys = new Physio();
+  let sitUntil = 0, lastFeelMsg = 0, lastBeauty = 0, lastNorm = 0, lastFeeling = '', lastPeople = [];
+  const useNearest = () => {
+    if (meDown) return;
+    const it = nearestItem(me.position.x, me.position.z, 2.8);
+    if (!it) { $('hud').textContent = 'Nothing to use here. Try the fountain, bench, strength tester or mural.'; return; }
+    const now = performance.now();
+    const queued = cutsInLine(me.position, it, lastPeople);
+    if (queued && it.kind !== 'look') guilt(4, `You cut in front of ${queued.name}, who was waiting.`);
+    turn(me, Math.atan2(it.x - me.position.x, it.z - me.position.z), 1);
+    const r = useItem(it, { carryKg: stats.carryKg, tired: vitals.tired, thirst: body.thirst });
+    if (!r) return;
+    if (!queued || it.kind === 'look') $('hud').textContent = r.text;
+    if (r.react) react(r.react, r.ms, true);
+    if (r.thirst) body.thirst = Math.max(0, body.thirst + r.thirst);
+    if (r.calm) phys.breathe(r.calm * 4);
+    if (r.sit) { sitUntil = now + r.ms; vitals.stamina = Math.min(100, vitals.stamina + 15); }
+    if (r.effort) vitals.stamina = Math.max(0, vitals.stamina - r.effort * 20);
+    if (r.pts) earn(r.pts, r.text);
+    if (r.look) { const b = beautyAt(me.position.x, me.position.z, { night: clockMin < 360 || clockMin > 1200, clean: +$('cl').textContent, weather }); phys.soothe(0.1); chatMood = 'happy'; chatMoodUntil = now + 4000; $('hud').textContent = `${r.text} ${b.score > 0.4 ? 'It is lovely.' : ''}`; }
+    tone(it.kind === 'swing' ? 300 : 500, 0.1, 0.04, 0);
+  };
+  const breathe = () => { if (meDown) return; phys.breathe(6); $('hud').textContent = 'You take slow, deep breaths. Your heart settles.'; };
   let lonelyT = 0, lastDriveMsg = 0, lastMoral = 0, lastDrive = '', helpT = 0, lastNudge = 0, att = { radius: 40, on: 'the park' }, curTarget = null;
   const saveDrive = () => { try { localStorage.setItem('vf-drive', JSON.stringify({ goals, rein, seen: cur.toJSON(), poi: [...poiSeen] })); } catch {} };
   const earn = (pts, text) => { const g = rein.reward(pts, performance.now()); chatMood = 'happy'; chatMoodUntil = performance.now() + 3000; tone(880, 0.1, 0.04, 0); setTimeout(() => tone(1175, 0.15, 0.04, 0), 110); buzz('taste'); $('hud').textContent = `${text} +${g} points${rein.streak > 1 ? ` (streak x${rein.streak})` : ''}`; saveDrive(); };
@@ -375,7 +413,7 @@ function start(name) {
   let lkListen = null, recentSlips = 0, paceMul = 1, lastRecall = new Map(), lastPredict = 0, lastForecast = '', lastWinded = 0, predSlow = 1, lastPos = null;
   const noteEvent = (kind, note) => { mem.remember(kind, me.position.x, me.position.z, note); learn.note(kind); if (kind === 'slip') recentSlips++; try { localStorage.setItem('vf-mind', JSON.stringify({ places: mem.places, counts: learn.counts, flavors: learn.flavors })); } catch {} };
   let pressNow = 1013, prevBody = null, lastBodyMsg = 0, vibNow = 0, fieldNow = 0, lastVibBuzz = 0, bodyT = 0;
-  const zap = () => { const s = body.discharge(); if (!s) return; body.hurt(0.15); react('startle', 900, true); buzz('burn'); tone(1400, 0.05, 0.05, 0); $('hud').textContent = 'Zap! A static shock jumps from your hand.'; noteEvent('zap'); };
+  const zap = () => { const s = body.discharge(); if (!s) return; body.hurt(0.15); react('startle', 900, true); phys.spike(0.4); buzz('burn'); tone(1400, 0.05, 0.05, 0); $('hud').textContent = 'Zap! A static shock jumps from your hand.'; noteEvent('zap'); };
   let actx = null, lastTaste = 0, burnUntil = 0, lastSmellMsg = '', lastSoundMsg = 0, vest = new Vestibular(), senseDizzy = 0;
   const tone = (f, d, v, pan) => { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(), p = actx.createStereoPanner ? actx.createStereoPanner() : null; o.frequency.value = f; g.gain.value = v; g.gain.exponentialRampToValueAtTime(0.0001, actx.currentTime + d); o.connect(g); if (p) { p.pan.value = pan; g.connect(p); p.connect(actx.destination); } else g.connect(actx.destination); o.start(); o.stop(actx.currentTime + d); } catch {} };
   let lastGround = 0, aheadSlow = 1, prevEnv = null, crowdT = 0, lastEmpathy = 0, lastCrowdMsg = 0; const repliedTo = new Map(), SPACE_M = { close: 0.9, normal: 1.5, wide: 2.4 };
@@ -388,6 +426,7 @@ function start(name) {
     if (!sp || !sp.flavor) { $('hud').textContent = 'Nothing to taste here. Find a food stand!'; return; }
     if (performance.now() - lastTaste < 4000) { $('hud').textContent = 'Savour it a moment first.'; return; }
     lastTaste = performance.now();
+    { const q = cutsInLine(me.position, sp, lastPeople); if (q) guilt(4, `You cut in front of ${q.name}, who was waiting.`); }
     const f = FLAVORS[sp.flavor];
     $('hud').textContent = `${sp.name}: ${f.text}`;
     chatMood = f.mood; chatMoodUntil = performance.now() + 5000; react(FLAVOR_REACTION[sp.flavor], 2200, true); buzz('taste'); body.eat(sp.flavor); learn.taste(sp.flavor); goalStep('taste', sp.flavor); noteEvent('food', sp.name); zap();
@@ -400,7 +439,7 @@ function start(name) {
   if ('ontouchstart' in window) {
     $('acts').style.display = 'flex';
     const tap = (id, f) => $(id).addEventListener('touchstart', e => { e.preventDefault(); f(); }, { passive: false });
-    tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bGrab', toggleCarry); tap('bTaste', taste); tap('bEdit', openCustom);
+    tap('bUse', useNearest); tap('bBreathe', breathe); tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bGrab', toggleCarry); tap('bTaste', taste); tap('bEdit', openCustom);
   }
   addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
   const chat = $('chat'); chat.style.display = 'block';
@@ -433,12 +472,13 @@ function start(name) {
     let dz = (keys.s || keys.arrowdown ? 1 : 0) - (keys.w || keys.arrowup ? 1 : 0) + joy.y;
     const now = performance.now(), len = Math.hypot(dx, dz), moving = len > 0.05;
     const frozen = meDown || now < lockUntil;
+    if (sitUntil && (now > sitUntil || (Math.abs(dx) + Math.abs(dz) > 0.05))) { sitUntil = 0; if (rxName === 'sit') rxUntil = 0; }
     if (frozen) { dx = dz = 0; }
     if (moving || dragging) lastInput = now;
     const idleFor = (now - lastInput) / 1000;
     const temp = feelTemp(clockMin, weather), carried = carryingId();
     const wantSprint = !!keys.shift || len > 0.95;
-    const sprinting = vitals.update(dt, { sprinting: wantSprint, moving: moving && !frozen, hurt: meHurt }, { ...stats, drain: stats.drain * (temp === 'hot' ? 1.3 : 1) * body.drainMul });
+    const sprinting = vitals.update(dt, { sprinting: wantSprint, moving: moving && !frozen, hurt: meHurt }, { ...stats, drain: stats.drain * (temp === 'hot' ? 1.3 : 1) * body.drainMul * phys.drainMul });
     if (vitals.winded && !wasWinded) $('hud').textContent = 'You are out of breath. Rest a moment!';
     wasWinded = vitals.winded;
     pushF = now < pushUntil ? pushF : 1;
@@ -448,7 +488,7 @@ function start(name) {
       const load = carried ? Math.max(0.5, 1 - carried.userData.w / (stats.carryKg * 2.4)) : 1;
       const target0 = (meHurt ? 0.5 : 1) * stats.walk * (sprinting ? stats.sprintMul : 1) * Math.sqrt(Math.max(me.userData.top, 1.4) / 2) * Math.min(len, 1) * load * pushF * (vitals.stumble > 0 ? 0.4 : 1) * (vitals.winded ? 0.75 : 1);
       slopeNow = slopeAlong(me.position.x, me.position.z, wx, wz); mudNow = onMud(me.position.x, me.position.z);
-      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1) * aheadSlow * body.speedMul * paceMul * predSlow;
+      const target = target0 * slopeSpeed(slopeNow) * (mudNow ? 0.55 : 1) * aheadSlow * body.speedMul * phys.speedMul * (sitUntil ? 0 : 1) * paceMul * predSlow;
       const grip = weather === 'rain' || mudNow ? 3 + stats.grip * 0.5 : 12; // wet ground: slower to start and stop
       speedNow += (target - speedNow) * Math.min(1, dt * grip);
       const px = me.position.x, pz = me.position.z;
@@ -551,7 +591,7 @@ function start(name) {
       const emo = emotionAround(mePt.x, mePt.z, people);
       if (emo) { if (!meHurt && !meDown) { chatMood = emo.mood; chatMoodUntil = now + 2500; } if (emo.concerned && now - lastEmpathy > 20000) { lastEmpathy = now; $('hud').textContent = `${emo.concerned.who} looks ${emo.concerned.mood === 'sad' ? 'upset or hurt' : 'worried'}. You feel concerned.`; } }
       // social: answer greetings aimed at me, feel crowded when people stand too close
-      for (const p of people) { const cue = p.emote && socialCue(mePt, p, p.emote); if (cue && repliedTo.get(p.id) !== p.at && !moving && !emoteState(meEmote, now).emote && !meDown) { repliedTo.set(p.id, p.at); doEmote(cue.reply); $('hud').textContent = `${cue.from} greeted you. You respond.`; turn(me, Math.atan2(p.x - mePt.x, p.z - mePt.z), 0.6); break; } }
+      for (const p of people) { const cue = p.emote && socialCue(mePt, p, p.emote); if (cue && repliedTo.get(p.id) !== p.at && !moving && !emoteState(meEmote, now).emote && !meDown) { repliedTo.set(p.id, p.at); const cr = culturalRead(p.emote, avatar.culture); doEmote(cr ? cr.reply : cue.reply); $('hud').textContent = cr ? `${cue.from}: ${cr.text}` : `${cue.from} greeted you. You respond.`; if (cr && !cr.kin) { rein.reward(3, now); saveDrive(); } turn(me, Math.atan2(p.x - mePt.x, p.z - mePt.z), 0.6); break; } }
       const crowd = crowding(mePt.x, mePt.z, people, SPACE_M[avatar.space] || 1.5);
       crowdT = crowd > 0.5 ? crowdT + 0.25 : 0;
       if (crowdT > 3 && now - lastCrowdMsg > 15000) { lastCrowdMsg = now; chatMood = 'nervous'; chatMoodUntil = now + 4000; $('hud').textContent = 'Someone is standing very close. You feel crowded.'; }
@@ -595,9 +635,20 @@ function start(name) {
       if (sw < 4 && now - lastWinded > 15000) { lastWinded = now; $('hud').textContent = 'You will be out of breath in a few seconds. Slow down.'; }
       paceMul = adaptPace({ slipSkill: learn.level('slip'), recentSlips, rain: weather === 'rain', night, pain: body.pain, crowd: people.filter(p => Math.hypot(p.x - mePt.x, p.z - mePt.z) < 6).length });
       const mi = $('mind'); if (mi) mi.textContent = `🧠 ${strategyOf(paceMul)} · 📍 ${mem.places.length} places · 🎓 sure-footed ${Math.round(learn.level('slip') * 100)}%${learn.favourite ? ' · ❤ likes ' + learn.favourite : ''} · 🗣 ${voice.hoarse ? 'hoarse' : voiceLevel(loudNow)}${pc ? ' · 🔮 ' + pc.who + ' ' + pc.t.toFixed(1) + 's' : sw < 8 ? ' · 🔮 winded in ' + Math.ceil(sw) + 's' : ''}`;
+      // ---- physiology / emotion / aesthetics / culture ----
+      lastPeople = people;
+      phys.update(0.25, { moving: moving && !frozen, sprinting, load: carried ? Math.min(1, carried.userData.w / (stats.carryKg || 20)) : 0, tempC: c.tempC, stress: Math.min(1, loudNow * 0.6 + (meHurt ? 0.5 : 0) + (crowdT > 0 ? 0.4 : 0) + (focus === 'overloaded' ? 0.3 : 0) + body.pain * 0.4), pain: body.pain, resting: !!sitUntil || (!moving && idleFor > 4) });
+      if (phys.panting && now > rxUntil) react('pant', 700);
+      const bty = beautyAt(me.position.x, me.position.z, { night, clean: +$('cl').textContent, weather }), btx = beautyText(bty);
+      if (bty.score > 0.4) { phys.soothe(0.004 * bty.score); }
+      if (btx && now - lastBeauty > 45000 && now > lastSoundMsg) { lastBeauty = now; chatMood = 'happy'; chatMoodUntil = now + 3500; $('hud').textContent = btx; if (bty.name.includes('mural') || bty.name.includes('fountain')) rein.reward(1, now); }
+      const fl = feeling({ mood, hr: phys.hr, adrenaline: phys.adrenaline, cortisol: phys.cortisol, pain: body.pain, tired: vitals.tired });
+      if (fl !== lastFeeling) { lastFeeling = fl; if (needsCalm(fl) && now - lastFeelMsg > 30000 && now > lastSoundMsg) { lastFeelMsg = now; $('hud').textContent = `You feel ${fl}. ${dev.kind === 'touch' ? 'Tap 🌬' : 'Press B'} to breathe slowly.`; } }
+      for (const p of people) { if (!p.id.startsWith('p')) continue; const av = others.get(+p.id.slice(1))?.userData.av; if (!av) continue; const d = Math.hypot(p.x - mePt.x, p.z - mePt.z), nc = normCheck({ dist: d, other: av }); if (nc && nc.back && now - lastNorm > 20000) { lastNorm = now; $('hud').textContent = `${p.name}: ${nc.text}`; chatMood = 'nervous'; chatMoodUntil = now + 2000; } }
+      const fe = $('feel'); if (fe) fe.textContent = `💓 ${Math.round(phys.hr)} bpm (${hrZone(phys.hr)}) · 🫁 ${Math.round(phys.resp)}/min · ⚡ adrenaline ${Math.round(phys.adrenaline * 100)}% · 🧪 cortisol ${Math.round(phys.cortisol * 100)}% · 🫶 ${fl}${bty.name && bty.score > 0.3 ? ' · 🎨 ' + bty.name : ''}${nearestItem(me.position.x, me.position.z, 2.8) ? ' · 🖐 ' + (dev.kind === 'touch' ? 'tap 🖐' : 'U') + ': ' + nearestItem(me.position.x, me.position.z, 2.8).name : ''}`;
       const sirenNow = !!(hr.loud && hr.loud.kind === 'siren' && hr.loud.v > 0.3);
       const pr = pickReaction({ loud: hr.total, siren: sirenNow && !sirenHeard, smell: sm, rain: weather === 'rain', night, moving });
-      if (sirenNow && !sirenHeard) buzz('siren');
+      if (sirenNow && !sirenHeard) { buzz('siren'); phys.spike(0.3); }
       sirenHeard = sirenNow;
       if (pr) react(pr.r, pr.ms);
       const vg = $('vision'); if (vg) vg.style.opacity = Math.min(0.85, (night ? 0.25 : 0) + (weather === 'rain' ? 0.12 : 0) + senseDizzy * 0.6 + (meHurt ? 0.15 : 0) + (vitals.tired ? 0.1 : 0));

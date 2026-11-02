@@ -235,6 +235,11 @@ export function animateAvatar(g, t, s = {}) {
   else if (r === 'pucker') { hz += 0.12; squint = 1; }
   else if (r === 'startle') { lean -= 0.3; aL = aR = -1.0; aLz = -0.7; aRz = 0.7; bob += 0.03; }
   else if (r === 'burn') { aR = 0.9 + Math.sin(t * 30) * 0.2; lean += 0.2; squint = 1; }
+  else if (r === 'drink') { aL = aR = -1.1; aLz = 0.2; aRz = -0.2 + Math.sin(t * 8) * 0.15; lean += 0.45; hx += 0.3; }
+  else if (r === 'swing') { const k = (Math.sin(t * 9) + 1) / 2; aL = aR = -2.9 + k * 2.6; aLz = 0.15; aRz = -0.15; lean += 0.25 * k - 0.1; }
+  else if (r === 'sit') { lL = lR = -1.45; aL = aR = -0.5; lean -= 0.05; bob -= 0.35; }
+  else if (r === 'pant') { lean += 0.3 + Math.sin(t * 9) * 0.06; bob += Math.abs(Math.sin(t * 9)) * 0.012; hx += 0.25; }
+  else if (r === 'reach') { aR = -1.5; aRz = -0.1; lean += 0.2; aL = 0.4; }
   else if (r === 'wince') { aR = -0.6; aRz = -0.2; lean += 0.25; hz += 0.1; squint = 1; }
   else if (r === 'tremble') { const j = Math.sin(t * 40) * 0.08; aL += j; aR -= j; bob += Math.abs(j) * 0.1; }
   else if (r === 'squint') squint = 0.6;

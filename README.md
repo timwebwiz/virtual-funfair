@@ -82,3 +82,12 @@ A `🎯 …` line (bottom-left) shows your goal, points, conscience, strongest d
 - **Curiosity:** new areas and points of interest are rewarded, the nearest undiscovered one is shown (🔍) and the avatar glances toward it when idle.
 - **Attention:** carrying a crate, chasing a goal or being overloaded narrows which name tags are shown.
 - **Empathy / social:** sad or fallen people prompt a nudge to wave or help.
+
+## Culture, ethics, aesthetics, physiology & objects
+A `💓 …` line (bottom-left) shows heart rate, breathing, adrenaline, cortisol, your named feeling and nearby usable objects.
+- **Cultural:** greetings from other players are read against your own custom (a bow, namaste, handshake…) and answered respectfully; shouting beside a formal/reserved guest, or standing closer than their personal-space setting, is impolite.
+- **Ethical:** cutting in front of someone waiting at a food stand or object costs points and conscience.
+- **Aesthetic:** the fountain, painted mural (new daily pattern), ferris wheel and carousel lights make the avatar feel good and calm it; a dirty park spoils the view.
+- **Emotional:** the avatar names its feeling (calm, anxious, thrilled…). When anxious or stressed, **B** / 🌬 takes slow breaths to settle it.
+- **Physiological:** heart rate and respiration follow effort, load, heat, stress and pain; sirens, shocks and shouts release adrenaline, sustained stress raises cortisol (faster stamina drain), and heavy exertion makes the avatar pant.
+- **Objects:** **U** / 🖐 uses the nearest object with matching limb animation: drink from the fountain, swing the strength-tester mallet, sit on the bench (recovers stamina), or look at the mural. The objects are solid obstacles for players and NPCs.

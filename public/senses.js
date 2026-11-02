@@ -108,7 +108,7 @@ export class Vestibular {
 export const tiltDeg = (x, z, ry) => Math.round(Math.atan((heightAt(x + Math.sin(ry) * 0.5, z + Math.cos(ry) * 0.5) - heightAt(x, z)) / 0.5) * 57.3);
 
 // ---- Sensory feedback: reactions the body shows (and others can see) ----
-export const REACTIONS = ['ears', 'nose', 'sniff', 'fan', 'pucker', 'chew', 'squint', 'startle', 'burn', 'wince', 'tremble'];
+export const REACTIONS = ['ears', 'nose', 'sniff', 'fan', 'pucker', 'chew', 'squint', 'startle', 'burn', 'wince', 'tremble', 'drink', 'swing', 'sit', 'pant', 'reach'];
 export const FLAVOR_REACTION = { salty: 'chew', sweet: 'chew', sour: 'pucker', spicy: 'fan', cold: 'chew' };
 // Pick a reaction from what the senses currently report (null = none).
 export function pickReaction({ loud = 0, siren = false, smell = null, burn = false, rain = false, night = false, moving = false }) {

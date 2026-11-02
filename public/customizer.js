@@ -1,8 +1,10 @@
 import * as THREE from 'three';
-import { buildAvatar, OPTIONS, HEIGHT_RANGE, BUILD_RANGE } from './avatar.js';
+import { buildAvatar, OPTIONS, HEIGHT_RANGE, BUILD_RANGE, MOODS, CULTURES, INTERESTS, TRAIT_RANGE } from './avatar.js';
 
 const COLORS = [['skin', 'Skin'], ['hair', 'Hair'], ['shirt', 'Top'], ['pants', 'Bottoms'], ['shoes', 'Shoes'], ['accent', 'Hat / bag colour']];
 const SELECTS = [['hairStyle', 'Hair style'], ['shirtStyle', 'Top style'], ['pantsStyle', 'Bottoms'], ['hat', 'Hat'], ['glasses', 'Glasses']];
+const TRAITS = [['strength', 'Strength'], ['agility', 'Agility'], ['endurance', 'Endurance']];
+const PERSONAL = [['mood', 'Mood', MOODS], ['culture', 'Greeting style', CULTURES], ['interest', 'Interest', INTERESTS]];
 const cap = s => s[0].toUpperCase() + s.slice(1);
 
 export function initCustomizer({ root, get, set }) {
@@ -31,6 +33,8 @@ export function initCustomizer({ root, get, set }) {
     OPTIONS[k].forEach(o => s.add(new Option(cap(o), o)));
     inputs[k] = row(l, s);
   }
+  for (const [k, l] of TRAITS) inputs[k] = row(l, Object.assign(document.createElement('input'), { type: 'range', min: TRAIT_RANGE[0], max: TRAIT_RANGE[1], step: 1 }));
+  for (const [k, l, opts] of PERSONAL) { const s2 = document.createElement('select'); opts.forEach(o => s2.add(new Option(cap(o), o))); inputs[k] = row(l, s2); }
   inputs.backpack = row('Backpack', Object.assign(document.createElement('input'), { type: 'checkbox' }));
 
   const read = () => {
@@ -40,6 +44,8 @@ export function initCustomizer({ root, get, set }) {
     for (const [k] of COLORS) a[k] = inputs[k].value;
     for (const [k] of SELECTS) a[k] = inputs[k].value;
     a.backpack = inputs.backpack.checked;
+    for (const [k] of TRAITS) a[k] = +inputs[k].value;
+    for (const [k] of PERSONAL) a[k] = inputs[k].value;
     return a;
   };
   const write = () => {
@@ -48,6 +54,8 @@ export function initCustomizer({ root, get, set }) {
     for (const [k] of COLORS) inputs[k].value = a[k];
     for (const [k] of SELECTS) inputs[k].value = a[k];
     inputs.backpack.checked = !!a.backpack;
+    for (const [k] of TRAITS) inputs[k].value = a[k];
+    for (const [k] of PERSONAL) inputs[k].value = a[k];
   };
 
   // live 3-D preview with a person-height reference grid

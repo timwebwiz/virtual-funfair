@@ -1,0 +1,70 @@
+import * as THREE from 'three';
+import { buildAvatar, OPTIONS, HEIGHT_RANGE, BUILD_RANGE } from './avatar.js';
+
+const COLORS = [['skin', 'Skin'], ['hair', 'Hair'], ['shirt', 'Top'], ['pants', 'Bottoms'], ['shoes', 'Shoes'], ['accent', 'Hat / bag colour']];
+const SELECTS = [['hairStyle', 'Hair style'], ['shirtStyle', 'Top style'], ['pantsStyle', 'Bottoms'], ['hat', 'Hat'], ['glasses', 'Glasses']];
+const cap = s => s[0].toUpperCase() + s.slice(1);
+
+export function initCustomizer({ root, get, set }) {
+  const f = root.querySelector('#fields'), canvas = root.querySelector('#preview');
+  const inputs = {};
+  const row = (label, el) => { const d = document.createElement('label'); d.className = 'row'; d.append(label, el); f.append(d); return el; };
+
+  const h = row('Height (cm)', Object.assign(document.createElement('input'), { type: 'number', min: HEIGHT_RANGE[0], max: HEIGHT_RANGE[1], step: 1 }));
+  const b = row('Build (slim → broad)', Object.assign(document.createElement('input'), { type: 'range', min: BUILD_RANGE[0], max: BUILD_RANGE[1], step: 0.01 }));
+  inputs.height = h; inputs.build = b;
+  for (const [k, l] of COLORS) inputs[k] = row(l, Object.assign(document.createElement('input'), { type: 'color' }));
+  for (const [k, l] of SELECTS) {
+    const s = document.createElement('select');
+    OPTIONS[k].forEach(o => s.add(new Option(cap(o), o)));
+    inputs[k] = row(l, s);
+  }
+  inputs.backpack = row('Backpack', Object.assign(document.createElement('input'), { type: 'checkbox' }));
+
+  const read = () => {
+    const a = { ...get() };
+    a.height = Math.min(HEIGHT_RANGE[1], Math.max(HEIGHT_RANGE[0], +h.value || 175));
+    a.build = +b.value;
+    for (const [k] of COLORS) a[k] = inputs[k].value;
+    for (const [k] of SELECTS) a[k] = inputs[k].value;
+    a.backpack = inputs.backpack.checked;
+    return a;
+  };
+  const write = () => {
+    const a = get();
+    h.value = a.height; b.value = a.build;
+    for (const [k] of COLORS) inputs[k].value = a[k];
+    for (const [k] of SELECTS) inputs[k].value = a[k];
+    inputs.backpack.checked = !!a.backpack;
+  };
+
+  // live 3-D preview with a person-height reference grid
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setSize(220, 300, false);
+  const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(35, 220 / 300, 0.1, 50);
+  cam.position.set(0, 1.3, 6); cam.lookAt(0, 1.05, 0);
+  scene.add(new THREE.HemisphereLight('#fff', '#667', 1.2));
+  const sun = new THREE.DirectionalLight('#fff', 2); sun.position.set(2, 4, 4); scene.add(sun);
+  const floor = new THREE.Mesh(new THREE.CircleGeometry(1, 32), new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.2 }));
+  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const ref = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.75, 0.03), new THREE.MeshBasicMaterial({ color: '#ffd23f' })); // 175 cm marker
+  ref.position.set(-0.9, 0.875, 0); scene.add(ref);
+  let model = null;
+  const rebuild = () => { if (model) scene.remove(model); model = buildAvatar(get()); scene.add(model); };
+  let raf = 0, open = false;
+  const loop = t => { if (!open) return; if (model) model.rotation.y = t / 1500; renderer.render(scene, cam); raf = requestAnimationFrame(loop); };
+
+  const onInput = () => { set(read()); rebuild(); };
+  f.addEventListener('input', onInput); f.addEventListener('change', onInput);
+  root.querySelector('#randomize').onclick = () => {
+    const r = a => a[Math.floor(Math.random() * a.length)], col = () => '#' + Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0');
+    const a = { ...get(), hair: col(), shirt: col(), pants: col(), shoes: col(), accent: col(), skin: r(['#f1c27d', '#e0ac69', '#c68642', '#8d5524', '#ffdbac']) };
+    for (const [k] of SELECTS) a[k] = r(OPTIONS[k]);
+    a.backpack = Math.random() < 0.3; set(a); write(); rebuild();
+  };
+  return {
+    show() { write(); rebuild(); open = true; cancelAnimationFrame(raf); raf = requestAnimationFrame(loop); },
+    hide() { open = false; },
+    refresh() { write(); rebuild(); }
+  };
+}

@@ -1,14 +1,24 @@
 import * as THREE from 'three';
 import { analyzePhoto, buildAvatar, defaultAvatar, animateWalk } from './avatar.js';
+import { initCustomizer } from './customizer.js';
 
 const $ = id => document.getElementById(id);
 let avatar = defaultAvatar();
+try { avatar = { ...avatar, ...JSON.parse(localStorage.getItem('vf-avatar') || '{}') }; } catch {}
+$('name').value = localStorage.getItem('vf-name') || '';
+const saveAvatar = () => { try { localStorage.setItem('vf-avatar', JSON.stringify(avatar)); } catch {} };
+let onAvatarChange = () => {};
+const customizer = initCustomizer({ root: $('custom'), get: () => avatar, set: a => { avatar = a; saveAvatar(); } });
+const openCustom = () => { $('custom').style.display = 'flex'; customizer.show(); };
+const closeCustom = () => { $('custom').style.display = 'none'; customizer.hide(); onAvatarChange(); };
+$('custBtn').onclick = openCustom; $('custDone').onclick = closeCustom;
+const photoAvatar = p => { avatar = { ...avatar, ...p }; saveAvatar(); };
 
 // ---------- Photo capture / upload ----------
 const loadImg = src => new Promise(r => { const i = new Image(); i.onload = () => r(i); i.src = src; });
 $('file').onchange = async e => {
   const f = e.target.files[0]; if (!f) return;
-  avatar = analyzePhoto(await loadImg(URL.createObjectURL(f)));
+  photoAvatar(analyzePhoto(await loadImg(URL.createObjectURL(f))));
   $('msg').textContent = 'Photo loaded ✔';
 };
 let stream;
@@ -21,12 +31,12 @@ $('cam').onclick = async () => {
 $('shot').onclick = () => {
   const c = $('snap'), v = $('vid');
   c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
-  avatar = analyzePhoto(c);
+  photoAvatar(analyzePhoto(c));
   stream.getTracks().forEach(t => t.stop());
   v.style.display = 'none'; $('shot').style.display = 'none';
   $('msg').textContent = 'Photo captured ✔';
 };
-$('go').onclick = () => { $('ui').style.display = 'none'; start($('name').value || 'Guest'); };
+$('go').onclick = () => { $('ui').style.display = 'none'; localStorage.setItem('vf-name', $('name').value); start($('name').value || 'Guest'); };
 
 // ---------- World ----------
 function start(name) {
@@ -105,9 +115,10 @@ function start(name) {
     const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c) }));
     s.scale.set(1.2, 0.3, 1); s.position.y = 2.2; return s;
   };
+  const tagged = (g, text) => { const t = nameTag(text); t.position.y = (g.userData.top || 2) + 0.25; g.add(t); return t; };
   const makePlayer = p => {
     const g = buildAvatar(p.avatar || defaultAvatar());
-    g.add(nameTag(p.name)); g.position.set(p.x, 0, p.z);
+    tagged(g, p.name); g.position.set(p.x, 0, p.z);
     g.userData = { tx: p.x, tz: p.z, try: p.ry, moving: false };
     scene.add(g); others.set(p.id, g); return g;
   };
@@ -216,7 +227,13 @@ function start(name) {
   };
   let meDown = false, meHurt = false, lockUntil = 0;
 
-  const me = buildAvatar(avatar); me.add(nameTag(name)); me.position.set(0, 0, 8); scene.add(me);
+  let me = buildAvatar(avatar), meTag = tagged(me, name); me.position.set(0, 0, 8); scene.add(me);
+  let vy = 0;
+  const swapMe = () => { // rebuild own avatar after customization
+    const pos = me.position.clone(), ry = me.rotation.y; scene.remove(me);
+    me = buildAvatar(avatar); meTag = tagged(me, name); me.position.copy(pos); me.rotation.y = ry; scene.add(me); setDown(me, meDown);
+  };
+  onAvatarChange = () => { swapMe(); if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'avatar', avatar })); };
 
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}`);
@@ -238,7 +255,8 @@ function start(name) {
     else if (m.t === 'hurt') { if (m.id === myId) { meHurt = m.v; $('hud').textContent = m.v ? 'You are injured.' : 'A medic treated your injury.'; } }
     else if (m.t === 'down') { if (m.id === myId) { meDown = m.v; setDown(me, m.v); if (!m.v) { meHurt = false; $('hud').textContent = 'A medic helped you up.'; }; } else { const g = others.get(m.id); if (g) setDown(g, m.v); } }
     else if (m.t === 'join') makePlayer(m.player);
-    else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, tz: m.z, try: m.ry }); }
+    else if (m.t === 'avatar') { const old = others.get(m.id); if (old) { const u = old.userData, p = old.position.clone(), r = old.rotation.y; scene.remove(old); const g = buildAvatar(m.avatar); tagged(g, m.name); g.position.copy(p); g.rotation.y = r; g.userData = u; scene.add(g); others.set(m.id, g); } }
+    else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, ty: m.y || 0, tz: m.z, try: m.ry }); }
     else if (m.t === 'leave') { const g = others.get(m.id); if (g) { scene.remove(g); others.delete(m.id); } }
     else if (m.t === 'chat') { $('hud').textContent = `${m.id === myId ? name : 'Player ' + m.id}: ${m.text}`; }
   };
@@ -247,8 +265,10 @@ function start(name) {
   const keys = {};
   const act = a => { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'act', a })); };
   addEventListener('keydown', e => {
-    if (e.target.tagName === 'INPUT') return;
+    if (['INPUT', 'SELECT', 'TEXTAREA'].includes(e.target.tagName) || $('custom').style.display === 'flex') return;
     const k = e.key.toLowerCase(); keys[k] = true;
+    if (k === 'm') openCustom();
+    if (k === ' ') { e.preventDefault(); jump(); }
     if (k === 'e') shout();
     if (k === 'f') faint();
     if (k === 'h') hurt();
@@ -256,6 +276,7 @@ function start(name) {
     if (k === 'r') callMaint();
     if (k === 'l') dropLitter();
   });
+  const jump = () => { if (me.position.y <= 0.001 && !meDown) vy = 6; };
   const shout = () => { if (meDown) return; act('shout'); $('hud').textContent = 'You shouted! Security may come over.'; };
   const faint = () => { if (meDown) return; act('faint'); meDown = true; setDown(me, true); $('hud').textContent = 'You fainted. Wait for a medic.'; };
   const callMaint = () => { act('maint'); $('hud').textContent = 'You called maintenance. Help is on the way.'; };
@@ -265,7 +286,7 @@ function start(name) {
   if ('ontouchstart' in window) {
     $('acts').style.display = 'flex';
     const tap = (id, f) => $(id).addEventListener('touchstart', e => { e.preventDefault(); f(); }, { passive: false });
-    tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter);
+    tap('bShout', shout); tap('bFaint', faint); tap('bHurt', hurt); tap('bCrit', critical); tap('bMaint', callMaint); tap('bLitter', dropLitter); tap('bJump', jump); tap('bEdit', openCustom);
   }
   addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
   const chat = $('chat'); chat.style.display = 'block';
@@ -278,6 +299,15 @@ function start(name) {
     j.ontouchend = () => { joy.x = joy.y = 0; n.style.left = n.style.top = '35px'; };
   }
 
+  // drag to orbit the camera, wheel to zoom
+  let camYaw = 0, camDist = 8, dragging = false, lastX = 0;
+  const cv = renderer.domElement;
+  cv.addEventListener('pointerdown', e => { dragging = true; lastX = e.clientX; });
+  addEventListener('pointerup', () => dragging = false);
+  addEventListener('pointermove', e => { if (dragging) { camYaw -= (e.clientX - lastX) * 0.006; lastX = e.clientX; } });
+  cv.addEventListener('wheel', e => { camDist = THREE.MathUtils.clamp(camDist + e.deltaY * 0.01, 4, 16); });
+  let speedNow = 0;
+
   // ---------- Loop ----------
   const clock = new THREE.Clock(); let sent = 0;
   renderer.setAnimationLoop(() => {
@@ -289,16 +319,21 @@ function start(name) {
     if (frozen) { dx = dz = 0; }
     if (moving && !frozen) {
       dx /= Math.max(len, 1); dz /= Math.max(len, 1);
-      me.position.x = THREE.MathUtils.clamp(me.position.x + dx * (meHurt ? 3 : 6) * dt, -75, 75);
-      me.position.z = THREE.MathUtils.clamp(me.position.z + dz * (meHurt ? 3 : 6) * dt, -75, 75);
+      const c = Math.cos(camYaw), s = Math.sin(camYaw), wx = dx * c + dz * s, wz = -dx * s + dz * c; // camera-relative
+      const sprint = (keys.shift && !meHurt) ? 1.6 : 1;
+      const target = (meHurt ? 3 : 6) * sprint * Math.sqrt(Math.max(me.userData.top, 1.4) / 2) * Math.min(len, 1);
+      speedNow += (target - speedNow) * Math.min(1, dt * 12);
+      me.position.x = THREE.MathUtils.clamp(me.position.x + wx * speedNow * dt, -75, 75);
+      me.position.z = THREE.MathUtils.clamp(me.position.z + wz * speedNow * dt, -75, 75);
       collide(me.position);
-      me.rotation.y = Math.atan2(dx, dz);
-    }
-    animateWalk(me, t, moving);
-    if (t - sent > 0.05 && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, z: me.position.z, ry: me.rotation.y })); }
+      turn(me, Math.atan2(wx, wz), 0.25);
+    } else speedNow = 0;
+    vy -= 18 * dt; me.position.y = Math.max(0, me.position.y + vy * dt); if (me.position.y === 0) vy = 0;
+    animateWalk(me, t, moving && !frozen && me.position.y < 0.05, speedNow > 7 ? 11 : 8);
+    if (t - sent > 0.05 && ws.readyState === 1) { sent = t; ws.send(JSON.stringify({ t: 'move', x: me.position.x, y: me.position.y, z: me.position.z, ry: me.rotation.y })); }
     others.forEach(g => {
       const u = g.userData, d = Math.hypot(u.tx - g.position.x, u.tz - g.position.z);
-      g.position.x += (u.tx - g.position.x) * 0.2; g.position.z += (u.tz - g.position.z) * 0.2;
+      g.position.x += (u.tx - g.position.x) * 0.2; g.position.z += (u.tz - g.position.z) * 0.2; g.position.y += ((u.ty || 0) - g.position.y) * 0.3;
       turn(g, u.try, 0.3); animateWalk(g, t, d > 0.02);
     });
     npcs.forEach(o => {
@@ -318,8 +353,8 @@ function start(name) {
     cabins.forEach(c => c.rotation.z = -wheel.rotation.z);
     if (!rideFault[1]) { carousel.rotation.y += dt * 0.5; horses.forEach((h, i) => h.position.y = 1.6 + Math.sin(t * 2 + i) * 0.4); }
     [[beacons[0], rideFault[0]], [beacons[1], rideFault[1]]].forEach(([b, v]) => { b.visible = !!v; if (v) { b.material.color.set(v === 2 ? '#ff2020' : '#ffb000'); b.material.emissive.set(v === 2 ? '#ff2020' : '#ffb000'); b.material.emissiveIntensity = Math.sin(t * 8) > 0 ? 3 : 0.3; } });
-    camera.position.lerp(new THREE.Vector3(me.position.x, 4.5, me.position.z + 8), 0.1);
-    camera.lookAt(me.position.x, 1.3, me.position.z);
+    camera.position.lerp(new THREE.Vector3(me.position.x + Math.sin(camYaw) * camDist, 4.5 * camDist / 8 + 0.5, me.position.z + Math.cos(camYaw) * camDist), 0.15);
+    camera.lookAt(me.position.x, 1.3 * (me.userData.top || 2) / 2, me.position.z);
     renderer.render(scene, camera);
   });
 }

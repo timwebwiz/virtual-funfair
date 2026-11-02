@@ -1,0 +1,1 @@
+{"name":"virtual-funfair","version":"0.1.0","type":"module","scripts":{"start":"node server.js"},"dependencies":{"three":"^0.160.0","ws":"^8.16.0"}}

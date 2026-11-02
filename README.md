@@ -36,3 +36,5 @@ Features: photo-based avatars, NPC security/medics/maintenance/visitors with pat
 ## Avatar face
 
 In the customizer (🎨 / **M**), choose **Face source**: **My photo** (upload, or take one with the camera; skin tone is matched), **Build my face** (eye colour/size/spacing, brows, nose, mouth width, lip colour, blush, freckles, lashes), or **Simple**. The face is synced to other players.
+
+The front login page has a **🙂 Build a face** button that opens the customizer straight at the face builder.

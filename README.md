@@ -39,6 +39,10 @@ In the customizer (🎨 / **M**), choose **Face source**: **My photo** (upload, 
 
 The front login page has a **🙂 Build a face** button that opens the customizer straight at the face builder.
 
+## Avatar wardrobe
+
+Open **🎨 Customize avatar** before entering the park, or press **M** / tap 🎨 while playing. Choose hair, tops, bottoms, top patterns, footwear, hats, glasses, neckwear, wristwear and a backpack, with separate colors for skin, hair, clothing, shoes and accents. The preview updates as you edit; **Random** creates a new combination. Your choices are saved in this browser and shared with other players when you enter or finish editing. Existing saved avatars keep their previous appearance, with new options initially set to plain or none.
+
 ## Sensory feedback
 
 - **Proprioception:** the body senses its own pose and corrects it: wider stance and arms out when unstable, leaning back against a carried load, leaning into turns, and a smoothed self-righting posture.

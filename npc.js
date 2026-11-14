@@ -1,6 +1,7 @@
 // Server-authoritative NPC simulation: security, medics, visitors, ambulance.
 import { empathyMethods } from './empathy.js';
 import { findPath, isBlocked, STATIONS, HOSPITAL, HOSP_DOOR, AMB_BAY, DEPOT, front } from './nav.js';
+import { DOORS, doorById, doorOccupied, closedDoorBlocks, crossesDoor } from './public/doors.js';
 import { maintMethods } from './maint.js';
 import { Crates, crateMethods, CRATE_R } from './stockroom.js';
 import { slopeAlong, onMud, steepness } from './public/terrain.js';
@@ -43,6 +44,8 @@ export class World {
   constructor(players, emit) {
     this.players = players; this.emit = emit; // emit(msg) broadcasts to everyone
     this.npcs = []; this.nextId = 1000; this.crates = new Crates();
+    this.doors = Object.fromEntries(DOORS.map(d => [d.id, false]));
+    this.doorPending = {};
     this.weather = 'clear'; this.weatherT = 45; this.clock = 9 * 60; // minutes
     this.alert = 0; this.incidents = []; // {x,z,by,t}
     this.spawn('security', 'supervisor'); this.spawn('security', 'guard'); this.spawn('security', 'guard'); this.spawn('security', 'guard');
@@ -234,6 +237,7 @@ export class World {
     // gate: keep players/NPCs in bounds
     this.npcs.forEach(n => { n.x = Math.max(-72, Math.min(72, n.x)); n.z = Math.max(-72, Math.min(72, n.z)); });
     this.separate(dt);
+    this.closeNpcDoors();
     for (const n of this.npcs) { // hard personal space around loose crates
       if (n.role === 'ambulance') continue;
       for (const c of this.crates.list) {
@@ -259,12 +263,23 @@ export class World {
     }
     const dx = gx - n.x, dz = gz - n.z, d = Math.hypot(dx, dz);
     if (d < (last ? 0.4 : 0.6)) { if (last) n.arrived = true; else n.wp++; return; }
+    if (n.role !== 'ambulance') for (const door of DOORS) {
+      if (!this.doors[door.id] && Math.hypot(n.x - door.x, n.z - door.z) < 2.4 && crossesDoor(door, n.x, n.z, gx, gz)) {
+        this.doors[door.id] = true; n.openedDoor = door.id;
+        this.emit({ t: 'door', id: door.id, open: true, npc: n.id });
+      }
+    }
     n.arrived = false;
     const run = (n.state === 'respond' || n.state === 'flee') ? 1.6 : 1;
     const sl = d > 0.01 ? slopeAlong(n.x, n.z, dx / d, dz / d) : 0;
     const ground = Math.max(0.45, 1 - 1.3 * Math.max(0, sl) + 0.25 * Math.max(0, -sl)) * (onMud(n.x, n.z) ? 0.6 : 1) * (this.weather === 'rain' && steepness(n.x, n.z) > 0.1 ? 0.85 : 1);
     const s = SPEED[n.role] * (n.spd || 1) * run * ground * dt;
-    n.x += dx / d * Math.min(s, d); n.z += dz / d * Math.min(s, d);
+    const x = n.x + dx / d * Math.min(s, d), z = n.z + dz / d * Math.min(s, d);
+    if (closedDoorBlocks(DOORS, this.doors, n.x, n.z, x, z)) return;
+    if (n.openedDoor && crossesDoor(doorById(n.openedDoor), n.x, n.z, x, z)) {
+      this.doorPending[n.openedDoor] = n.id; n.openedDoor = null;
+    }
+    n.x = x; n.z = z;
     // turn smoothly towards heading
     const want = Math.atan2(dx, dz), diff = ((want - n.ry + Math.PI) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI) - Math.PI;
     n.ry += diff * Math.min(1, dt * 8);
@@ -277,8 +292,17 @@ export class World {
       const a = list[i], b = list[j], d = dist(a, b);
       if (d >= 0.8 || d < 0.001) continue;
       const push = (0.8 - d) * 0.5 * Math.min(1, dt * 6), ux = (a.x - b.x) / d, uz = (a.z - b.z) / d;
-      if (!isBlocked(a.x + ux * push, a.z + uz * push)) { a.x += ux * push; a.z += uz * push; }
-      if (!isBlocked(b.x - ux * push, b.z - uz * push)) { b.x -= ux * push; b.z -= uz * push; }
+      if (!isBlocked(a.x + ux * push, a.z + uz * push) && !closedDoorBlocks(DOORS, this.doors, a.x, a.z, a.x + ux * push, a.z + uz * push)) { a.x += ux * push; a.z += uz * push; }
+      if (!isBlocked(b.x - ux * push, b.z - uz * push) && !closedDoorBlocks(DOORS, this.doors, b.x, b.z, b.x - ux * push, b.z - uz * push)) { b.x -= ux * push; b.z -= uz * push; }
+    }
+  }
+
+  closeNpcDoors() {
+    for (const [id, npc] of Object.entries(this.doorPending)) {
+      const door = doorById(id);
+      if (doorOccupied(door, [...this.players.values(), ...this.npcs])) continue;
+      delete this.doorPending[id];
+      if (this.doors[id]) { this.doors[id] = false; this.emit({ t: 'door', id, open: false, npc }); }
     }
   }
 

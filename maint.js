@@ -1,5 +1,6 @@
 // Maintenance crew: cleaners and technicians. Mixed into World.prototype (see npc.js).
-import { DEPOT, front } from './nav.js';
+import { DEPOT } from './nav.js';
+import { inDoorwayClearance } from './public/doors.js';
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -23,7 +24,7 @@ export const maintMethods = {
   },
 
   dropLitter(x, z, type = 0) {
-    if (this.litter.length >= MAX_LITTER) return null;
+    if (this.litter.length >= MAX_LITTER || inDoorwayClearance(x, z, 1)) return null;
     const it = { id: this.nextLitter++, x, z, type, hue: Math.floor(rnd(0, 360)), seen: false };
     this.litter.push(it); return it;
   },
@@ -95,7 +96,7 @@ export const maintMethods = {
   workRange() { return this.clock < 360 || this.clock > 1200 ? 12 : this.weather === 'rain' ? 14 : 20; },
 
   maintenance(n, dt) {
-    const home = front(DEPOT, 9);
+    const home = [DEPOT.x, DEPOT.z];
     n.bag = n.bag || 0;
     const isTech = n.duty === 'technician';
     if ((n.state === 'fetch' || n.state === 'haul') && this.haulStep(n)) return;
@@ -179,8 +180,8 @@ export const maintMethods = {
   finishTask(n) {
     const t = n.task; if (!t) return;
     const e = t.e;
-    if (t.type === 'litter') { this.litter.splice(this.litter.indexOf(e), 1); n.bag++; }
-    else if (t.type === 'spill') { this.litter.splice(this.litter.indexOf(e), 1); this.radio(n.name, `Spill near ${this.place(t.x, t.z)} cleaned.`); }
+    if (t.type === 'litter') { const i = this.litter.indexOf(e); if (i !== -1) { this.litter.splice(i, 1); n.bag++; } }
+    else if (t.type === 'spill') { const i = this.litter.indexOf(e); if (i !== -1) { this.litter.splice(i, 1); this.radio(n.name, `Spill near ${this.place(t.x, t.z)} cleaned.`); } }
     else if (t.type === 'call') {
       e.maintCall = false;
       const near = this.litter.filter(i => Math.hypot(i.x - e.x, i.z - e.z) < 6);

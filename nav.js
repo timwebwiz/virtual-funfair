@@ -1,5 +1,6 @@
 import { SPOTS } from './public/senses.js';
 import { ITEMS } from './public/items.js';
+import { BUILDINGS, WALL_THICKNESS } from './public/doors.js';
 // Grid navigation: static obstacles (rides, booths, stations, hospital) + A* with line-of-sight smoothing.
 const MIN = -80, N = 160; // 1 m cells covering -80..80
 
@@ -12,16 +13,43 @@ export const HOSP_DOOR = [44, 38];
 export const AMB_BAY = [30, 38];
 export const DEPOT = { x: -45, z: 45, name: 'Maintenance Depot' };
 
+const buildingWalls = b => {
+  const side = (b.width - b.doorWidth) / 2;
+  return [
+    rect(b.x - b.width / 2, b.z, b.depth / 2, WALL_THICKNESS / 2, 0),
+    rect(b.x + b.width / 2, b.z, b.depth / 2, WALL_THICKNESS / 2, 0),
+    rect(b.x, b.z + b.depth / 2, WALL_THICKNESS / 2, b.width / 2, 0),
+    rect(b.x - (b.doorWidth + side) / 2, b.z - b.depth / 2, WALL_THICKNESS / 2, side / 2, 0),
+    rect(b.x + (b.doorWidth + side) / 2, b.z - b.depth / 2, WALL_THICKNESS / 2, side / 2, 0)
+  ];
+};
 export const OBSTACLES = [
   rect(-30, -30, 4.5, 1.2, 0),            // ferris wheel base/legs
   circle(30, -20, 6.5),                   // carousel
-  rect(HOSPITAL.x, HOSPITAL.z, 5.5, 6.5, 0),
-  rect(DEPOT.x, DEPOT.z, 4, 5, 0),
+  ...BUILDINGS.flatMap(buildingWalls),
   ...Array.from({ length: 6 }, (_, i) => { const a = i / 6 * Math.PI * 2; return rect(Math.cos(a) * 18, Math.sin(a) * 18, 2, 1.5, a); }), // booths
   ...SPOTS.map(p => rect(p.x, p.z, 0.8, 1.1, 0)), // food stands
   ...ITEMS.map(i => rect(i.x, i.z, i.ht, i.hr, 0)), // fountain, strength tester, bench, mural
   ...STATIONS.map(s => rect(s.x, s.z, 2.5, 2, Math.atan2(s.z, s.x)))
 ];
+const BUILDING_WALLS = BUILDINGS.flatMap(buildingWalls);
+
+// Prevent a network movement update from skipping over a thin building wall.
+export function crossesBuildingWall(x1, z1, x2, z2, margin = 0.3) {
+  for (const o of BUILDING_WALLS) {
+    let enter = 0, exit = 1;
+    for (const [start, delta, min, max] of [
+      [x1, x2 - x1, o.x - o.hr - margin, o.x + o.hr + margin],
+      [z1, z2 - z1, o.z - o.ht - margin, o.z + o.ht + margin]
+    ]) {
+      if (delta === 0) { if (start <= min || start >= max) { enter = 2; break; } continue; }
+      const a = (min - start) / delta, b = (max - start) / delta;
+      enter = Math.max(enter, Math.min(a, b)); exit = Math.min(exit, Math.max(a, b));
+    }
+    if (enter <= exit && enter <= 1 && exit >= 0) return true;
+  }
+  return false;
+}
 
 // point in front of a building (towards park centre) where staff can stand
 export const front = (s, d = 4.5) => { const l = Math.hypot(s.x, s.z) || 1; return [s.x - s.x / l * d, s.z - s.z / l * d]; };

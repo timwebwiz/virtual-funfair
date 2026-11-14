@@ -98,7 +98,9 @@ A `💓 …` line (bottom-left) shows heart rate, breathing, adrenaline, cortiso
 
 ## Park interactions and equipment
 
-Use **U** / 🖐 at the cleaning station near the entrance to take or return a cleaning tool; use it near litter or a spill to clean it up with the maintenance team. The server validates equipment and reach, and everyone sees the cleaned area and equipped tool. Put the tool back before carrying a crate. Use **U** / 🖐 at the nearby plaza switch to turn its light on or off for everyone. Crate deliveries, greetings, chat, voice and NPC maintenance provide existing cooperative and social interactions; hills, mud and obstacles continue to affect movement. Building doors remain decorative.
+Use **U** / 🖐 at the cleaning station near the entrance to take or return a cleaning tool; use it near litter or a spill to clean it up with the maintenance team. The server validates equipment and reach, and everyone sees the cleaned area and equipped tool. Put the tool back before carrying a crate. Use **U** / 🖐 at the nearby plaza switch to turn its light on or off for everyone. Crate deliveries, greetings, chat, voice and NPC maintenance provide existing cooperative and social interactions; hills, mud and obstacles continue to affect movement.
+
+The hospital and maintenance depot doors can be opened or closed from either side with **U** / 🖐. Their state is shared, closed doors block movement, and NPCs open and close them as they pass through. Doors cannot close on someone in the doorway. Litter and loose crates cannot be placed in the entrance corridors; if carrying a crate, move away from the door before dropping it.
 
 ## Voice chat & lip-sync
 Press **V** (or tap 🎤) to turn your microphone on or off; it is off until you enable it, and a green "Mic on" badge shows while it is live. The browser needs microphone permission and a secure origin (https or localhost).

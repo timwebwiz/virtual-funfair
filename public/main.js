@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { ITEMS, nearestItem, useItem, beautyAt, beautyText, muralSpec, culturalRead, normCheck, cutsInLine } from './items.js';
 import { nearestMess, INTERACTION_RANGE } from './interactions.js';
+import { BUILDINGS, DOORS, DOOR_REACH, WALL_THICKNESS, nearestDoor, doorObstacle, inDoorwayClearance } from './doors.js';
 import { Physio, hrZone, feeling, needsCalm } from './physio.js';
 import { VoiceIO } from './voiceio.js';
 import { LipSync, voiceGain, unpackFrame } from './voicechat.js';
@@ -206,21 +207,29 @@ function start(name) {
     g.position.set(st.x, 0, st.z); g.lookAt(0, 0, 0); scene.add(g);
   };
   const at = (o, x, y, z) => { o.position.set(x, y, z); return o; };
-  const hospital = new THREE.Group();
-  hospital.add(Object.assign(at(new THREE.Mesh(new THREE.BoxGeometry(12, 8, 10), new THREE.MeshStandardMaterial({ color: '#eef3f7' })), 0, 4, 0), { castShadow: true }));
-  hospital.add(at(new THREE.Mesh(new THREE.BoxGeometry(12.6, 0.5, 10.6), new THREE.MeshStandardMaterial({ color: '#2a9d8f' })), 0, 8.2, 0));
-  { const red = new THREE.MeshStandardMaterial({ color: '#e63946', emissive: '#e63946', emissiveIntensity: 0.4 });
-    const a = new THREE.Mesh(new THREE.BoxGeometry(3, 0.9, 0.1), red), b = new THREE.Mesh(new THREE.BoxGeometry(0.9, 3, 0.1), red);
-    a.position.set(0, 6, -5.05); b.position.copy(a.position); hospital.add(a, b);
-    hospital.add(at(new THREE.Mesh(new THREE.BoxGeometry(3, 3.2, 0.1), new THREE.MeshStandardMaterial({ color: '#223' })), -1, 1.6, -5.05));
-    hospital.add(at(nameTag('Park Hospital'), 0, 9.8, 0)); hospital.children.at(-1).scale.set(4, 1, 1); }
-  hospital.position.set(45, 0, 45); scene.add(hospital);
-  const depot = new THREE.Group();
-  depot.add(Object.assign(at(new THREE.Mesh(new THREE.BoxGeometry(10, 5, 8), new THREE.MeshStandardMaterial({ color: '#c9a227' })), 0, 2.5, 0), { castShadow: true }));
-  depot.add(at(new THREE.Mesh(new THREE.BoxGeometry(10.6, 0.4, 8.6), new THREE.MeshStandardMaterial({ color: '#444' })), 0, 5.2, 0));
-  depot.add(at(new THREE.Mesh(new THREE.BoxGeometry(3, 3.2, 0.1), new THREE.MeshStandardMaterial({ color: '#223' })), 2.5, 1.6, 4.05));
-  depot.add(at(nameTag('Maintenance'), 0, 6.4, 0));
-  depot.position.set(-45, 0, 45); depot.rotation.y = Math.atan2(-45, 45) + Math.PI; scene.add(depot);
+  const doorState = Object.fromEntries(DOORS.map(d => [d.id, false]));
+  const doorMeshes = new Map();
+  const buildingVisibility = [];
+  for (const b of BUILDINGS) {
+    const g = new THREE.Group(), wall = new THREE.MeshStandardMaterial({ color: b.color });
+    const box = (w, h, d, x, y, z, material = wall) => { const m = at(new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material), x, y, z); m.castShadow = true; g.add(m); return m; };
+    const side = (b.width - b.doorWidth) / 2, front = -b.depth / 2, doorHeight = 3.2;
+    box(WALL_THICKNESS, b.height, b.depth, -b.width / 2, b.height / 2, 0);
+    box(WALL_THICKNESS, b.height, b.depth, b.width / 2, b.height / 2, 0);
+    box(b.width, b.height, WALL_THICKNESS, 0, b.height / 2, b.depth / 2);
+    for (const s of [-1, 1]) box(side, b.height, WALL_THICKNESS, s * (b.doorWidth + side) / 2, b.height / 2, front);
+    box(b.doorWidth, b.height - doorHeight, WALL_THICKNESS, 0, (b.height + doorHeight) / 2, front);
+    const roof = box(b.width + 0.6, 0.4, b.depth + 0.6, 0, b.height + 0.2, 0, new THREE.MeshStandardMaterial({ color: b.roof }));
+    const hinge = new THREE.Group(); hinge.position.set(-b.doorWidth / 2, 0, front);
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(b.doorWidth, doorHeight, 0.12), new THREE.MeshStandardMaterial({ color: '#34495e' }));
+    panel.position.set(b.doorWidth / 2, doorHeight / 2, 0); hinge.add(panel); g.add(hinge); doorMeshes.set(b.id, hinge);
+    g.add(at(nameTag(b.name), 0, b.height + 1.4, 0));
+    g.position.set(b.x, 0, b.z); scene.add(g); buildingVisibility.push({ building: b, wall, roof, inside: false });
+  }
+  const setDoor = (id, open) => {
+    if (!doorMeshes.has(id)) return;
+    doorState[id] = !!open; doorMeshes.get(id).rotation.y = open ? Math.PI / 2 : 0;
+  };
   const litterMeshes = new Map();
   const litterGeo = new THREE.BoxGeometry(0.25, 0.12, 0.2), spillGeo = new THREE.CircleGeometry(0.9, 20);
   const syncLitter = list => {
@@ -280,7 +289,8 @@ function start(name) {
   let obstacles = [];
   // push the player out of any obstacle, sliding along its edge
   const collide = (pos, margin = 0.4) => {
-    for (let k = 0; k < 3; k++) for (const o of obstacles) {
+    const closedDoors = DOORS.filter(d => !doorState[d.id]).map(doorObstacle);
+    for (let k = 0; k < 3; k++) for (const o of [...obstacles, ...closedDoors]) {
       const dx = pos.x - o.x, dz = pos.z - o.z;
       if (o.r !== undefined) {
         const d = Math.hypot(dx, dz), min = o.r + margin;
@@ -347,7 +357,7 @@ function start(name) {
       voiceIO.play(f.id, f.pcm, voiceGain(d), panOf(me.position.x, me.position.z, me.rotation.y, og.position.x, og.position.z)); return;
     }
     const m = JSON.parse(e.data);
-    if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); if (m.pad) buildPad(m.pad); setPlazaLight(m.plazaLightOn); }
+    if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; for (const d of DOORS) setDoor(d.id, m.doors?.[d.id]); collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); if (m.pad) buildPad(m.pad); setPlazaLight(m.plazaLightOn); }
     else if (m.t === 'roster') m.npcs.forEach(addNpc);
     else if (m.t === 'npcs') {
       weather = m.w; clockMin = m.c; syncLitter(m.l || []); rideFault = m.r || [0, 0];
@@ -358,11 +368,13 @@ function start(name) {
     }
     else if (m.t === 'radio') { const r = $('radio'), d = document.createElement('div'); d.textContent = `${m.from}: ${m.text}`; r.appendChild(d); while (r.children.length > 7) r.removeChild(r.children[1]); }
     else if (m.t === 'tp') { if (m.id === myId) { me.position.set(m.x, 0, m.z); lockUntil = performance.now() + (m.lock || 0); $('hud').textContent = m.text; } }
+    else if (m.t === 'position') { me.position.x = m.x; me.position.z = m.z; }
     else if (m.t === 'hurt') { const og = others.get(m.id); if (og) og.userData.hurt = m.v; if (m.id === myId) { meHurt = m.v; $('hud').textContent = m.v ? 'You are injured.' : 'A medic treated your injury.'; } }
     else if (m.t === 'down') { if (m.id === myId) { meDown = m.v; setDown(me, m.v); if (!m.v) { meHurt = false; $('hud').textContent = 'A medic helped you up.'; }; } else { const g = others.get(m.id); if (g) setDown(g, m.v); } }
     else if (m.t === 'join') makePlayer(m.player);
     else if (m.t === 'avatar') { const old = others.get(m.id); if (old) { const u = old.userData, p = old.position.clone(), r = old.rotation.y; scene.remove(old); const g = buildAvatar(m.avatar); tagged(g, m.name + stars(m.avatar.level)); g.position.copy(p); g.rotation.y = r; u.av = m.avatar; g.userData = u; setTool(g, !!u.tool); scene.add(g); others.set(m.id, g); reattach(); } }
     else if (m.t === 'tool') { const g = m.id === myId ? me : others.get(m.id); if (g) setTool(g, m.equipped); }
+    else if (m.t === 'door') { setDoor(m.id, m.open); if (m.by === myId) { react('reach', 900, true); const d = DOORS.find(x => x.id === m.id); $('hud').textContent = `${d.name} door ${m.open ? 'opened' : 'closed'}.`; } }
     else if (m.t === 'plaza-light') { setPlazaLight(m.on); if (m.id === myId) { react('reach', 900, true); $('hud').textContent = `Plaza light switched ${m.on ? 'on' : 'off'}.`; } }
     else if (m.t === 'cleaned') { const mesh = litterMeshes.get(m.litterId); if (mesh) { scene.remove(mesh); mesh.material.dispose(); litterMeshes.delete(m.litterId); } if (m.id === myId) { react('reach', 1200, true); $('hud').textContent = m.type === 1 ? 'You cleaned up the spill.' : 'You cleaned up the litter.'; } }
     else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, ty: m.y || 0, tz: m.z, try: m.ry, s: m.s }); }
@@ -424,7 +436,9 @@ function start(name) {
     if (meDown) return;
     if (ws.readyState !== WebSocket.OPEN) { $('hud').textContent = 'Connect to the park before using objects.'; return; }
     const it = nearestItem(me.position.x, me.position.z, INTERACTION_RANGE);
+    const door = nearestDoor(me.position.x, me.position.z);
     const mess = me.userData.tool && nearestMess(me.position.x, me.position.z, [...litterMeshes.values()].map(mesh => ({ x: mesh.position.x, z: mesh.position.z })));
+    if (door && (!it || Math.hypot(door.x - me.position.x, door.z - me.position.z) <= Math.hypot(it.x - me.position.x, it.z - me.position.z)) && (!mess || Math.hypot(door.x - me.position.x, door.z - me.position.z) <= Math.hypot(mess.x - me.position.x, mess.z - me.position.z))) { ws.send(JSON.stringify({ t: 'interact', action: 'door', id: door.id })); turn(me, Math.atan2(door.x - me.position.x, door.z - me.position.z), 1); return; }
     if (mess && (!it || Math.hypot(mess.x - me.position.x, mess.z - me.position.z) < Math.hypot(it.x - me.position.x, it.z - me.position.z))) { ws.send(JSON.stringify({ t: 'interact', action: 'clean' })); return; }
     if (!it) { $('hud').textContent = me.userData.tool ? 'No litter, spill or usable object within reach.' : 'Nothing to use here. Try the cleaning station, light switch, fountain, bench, strength tester or mural.'; return; }
     if (it.kind === 'tool' || it.kind === 'switch') { ws.send(JSON.stringify({ t: 'interact', action: it.kind })); turn(me, Math.atan2(it.x - me.position.x, it.z - me.position.z), 1); return; }
@@ -475,7 +489,7 @@ function start(name) {
     if (f.energy) vitals.stamina = Math.min(100, vitals.stamina + f.energy);
     tone(520, 0.12, 0.05, 0);
   };
-  const dropLitter = () => { act('litter'); guilt(5, 'You dropped litter. Someone has to clean that up: please use the bins.'); };
+  const dropLitter = () => { if (inDoorwayClearance(me.position.x, me.position.z, 1)) { $('hud').textContent = 'Keep doorways clear of litter.'; return; } act('litter'); guilt(5, 'You dropped litter. Someone has to clean that up: please use the bins.'); };
   const critical = () => { if (meDown) return; act('critical'); meDown = true; setDown(me, true); $('hud').textContent = 'Severe emergency! Medics and an ambulance are coming.'; };
   const hurt = () => { if (meDown || meHurt) return; act('hurt'); meHurt = true; $('hud').textContent = 'You are injured. Walk to a first aid station or wait for a medic.'; };
   if ('ontouchstart' in window) {
@@ -544,6 +558,11 @@ function start(name) {
 
     // other players: keep personal space (soft collision)
     others.forEach(g => { const ox = me.position.x - g.position.x, oz = me.position.z - g.position.z, od = Math.hypot(ox, oz); if (od < 0.8 && od > 0.001) { const k = (0.8 - od) * 0.5 / od; me.position.x += ox * k; me.position.z += oz * k; } });
+    collide(me.position);
+    for (const v of buildingVisibility) {
+      const b = v.building, inside = Math.abs(me.position.x - b.x) < b.width / 2 && Math.abs(me.position.z - b.z) < b.depth / 2;
+      if (inside !== v.inside) { v.inside = inside; v.roof.visible = !inside; v.wall.transparent = inside; v.wall.opacity = inside ? 0.25 : 1; v.wall.depthWrite = !inside; v.wall.needsUpdate = true; }
+    }
 
     // pushing crates
     let pushing = false;
@@ -553,7 +572,7 @@ function start(name) {
       if (d >= min) return;
       const nx = ox / (d || 1), nz = oz / (d || 1), tx = me.position.x + nx * min, tz = me.position.z + nz * min, probe = { x: tx, z: tz };
       collide(probe, 0.6);
-      if (Math.hypot(probe.x - tx, probe.z - tz) > 0.01 || Math.abs(tx) > 75 || Math.abs(tz) > 75) { me.position.x = u.x - nx * min; me.position.z = u.z - nz * min; return; }
+      if (Math.hypot(probe.x - tx, probe.z - tz) > 0.01 || Math.abs(tx) > 75 || Math.abs(tz) > 75 || inDoorwayClearance(tx, tz, 0.6)) { me.position.x = u.x - nx * min; me.position.z = u.z - nz * min; return; }
       u.x = tx; u.z = tz; u.dirty = true; m.position.set(tx, u.sz / 2, tz); pushing = true; pushUntil = now + 250; pushF = stats.pushFactor(u.w);
     });
     if (pushing && now - lastCrateSent > 100 && ws.readyState === 1) { lastCrateSent = now; crates.forEach(m => { if (m.userData.dirty) { m.userData.dirty = false; ws.send(JSON.stringify({ t: 'crate', id: m.userData.id, x: m.userData.x, z: m.userData.z })); } }); }
@@ -689,8 +708,10 @@ function start(name) {
       if (fl !== lastFeeling) { lastFeeling = fl; if (needsCalm(fl) && now - lastFeelMsg > 30000 && now > lastSoundMsg) { lastFeelMsg = now; $('hud').textContent = `You feel ${fl}. ${dev.kind === 'touch' ? 'Tap 🌬' : 'Press B'} to breathe slowly.`; } }
       for (const p of people) { if (!p.id.startsWith('p')) continue; const av = others.get(+p.id.slice(1))?.userData.av; if (!av) continue; const d = Math.hypot(p.x - mePt.x, p.z - mePt.z), nc = normCheck({ dist: d, other: av }); if (nc && nc.back && now - lastNorm > 20000) { lastNorm = now; $('hud').textContent = `${p.name}: ${nc.text}`; chatMood = 'nervous'; chatMoodUntil = now + 2000; } }
       const nearbyItem = nearestItem(me.position.x, me.position.z, INTERACTION_RANGE);
+      const nearbyDoor = nearestDoor(me.position.x, me.position.z);
       const nearbyMess = me.userData.tool && nearestMess(me.position.x, me.position.z, [...litterMeshes.values()].map(mesh => ({ x: mesh.position.x, z: mesh.position.z })));
-      const useTarget = nearbyMess && (!nearbyItem || Math.hypot(nearbyMess.x - me.position.x, nearbyMess.z - me.position.z) < Math.hypot(nearbyItem.x - me.position.x, nearbyItem.z - me.position.z)) ? 'clean litter or spill' : nearbyItem?.name;
+      let useTarget = nearbyMess && (!nearbyItem || Math.hypot(nearbyMess.x - me.position.x, nearbyMess.z - me.position.z) < Math.hypot(nearbyItem.x - me.position.x, nearbyItem.z - me.position.z)) ? 'clean litter or spill' : nearbyItem?.name;
+      if (nearbyDoor && (!nearbyItem || Math.hypot(nearbyDoor.x - me.position.x, nearbyDoor.z - me.position.z) <= Math.hypot(nearbyItem.x - me.position.x, nearbyItem.z - me.position.z)) && (!nearbyMess || Math.hypot(nearbyDoor.x - me.position.x, nearbyDoor.z - me.position.z) <= Math.hypot(nearbyMess.x - me.position.x, nearbyMess.z - me.position.z))) useTarget = `${doorState[nearbyDoor.id] ? 'close' : 'open'} ${nearbyDoor.name} door`;
       const fe = $('feel'); if (fe) fe.textContent = `💓 ${Math.round(phys.hr)} bpm (${hrZone(phys.hr)}) · 🫁 ${Math.round(phys.resp)}/min · ⚡ adrenaline ${Math.round(phys.adrenaline * 100)}% · 🧪 cortisol ${Math.round(phys.cortisol * 100)}% · 🫶 ${fl}${bty.name && bty.score > 0.3 ? ' · 🎨 ' + bty.name : ''}${useTarget ? ' · 🖐 ' + (dev.kind === 'touch' ? 'tap 🖐' : 'U') + ': ' + useTarget : ''}`;
       const sirenNow = !!(hr.loud && hr.loud.kind === 'siren' && hr.loud.v > 0.3);
       const pr = pickReaction({ loud: hr.total, siren: sirenNow && !sirenHeard, smell: sm, rain: weather === 'rain', night, moving });

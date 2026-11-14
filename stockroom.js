@@ -1,6 +1,7 @@
 // Pushable / liftable crates, a delivery pad puzzle, and staff who tidy stray crates.
 // Server-authoritative; strength decides what a player can move. Staff can lift anything.
 import { blockedPoint } from './nav.js';
+import { inDoorwayClearance } from './public/doors.js';
 
 const START = [
   { x: 8, z: 22, w: 8 }, { x: 12, z: 24, w: 8 }, { x: -10, z: 26, w: 20 },
@@ -23,7 +24,7 @@ export class Crates {
     if (!c || c.by != null || ![x, z].every(Number.isFinite)) return null;
     if (Math.abs(x) > LIM || Math.abs(z) > LIM) return null;
     if (Math.hypot(p.x - c.x, p.z - c.z) > 3 || Math.hypot(x - c.x, z - c.z) > 2) return null;
-    if (blockedPoint(x, z, 0.6)) return null;
+    if (blockedPoint(x, z, 0.6) || inDoorwayClearance(x, z, 0.6)) return null;
     c.x = x; c.z = z; c.idle = 0; c.last = p.id; c.padT = Date.now();
     return c;
   }
@@ -41,17 +42,23 @@ export class Crates {
     return { crate: best };
   }
 
-  drop(p) {
+  drop(p, { relocate = false } = {}) {
     const c = this.list.find(k => k.by === p.id);
     if (!c) return null;
-    c.by = null; c.idle = 0; c.padT = Date.now();
     const fx = Math.sin(p.ry || 0), fz = Math.cos(p.ry || 0);
-    for (const d of [0.9, 0.5, 0]) {
-      const x = p.x + fx * d, z = p.z + fz * d;
-      if (!blockedPoint(x, z, 0.6)) { c.x = x; c.z = z; return c; }
+    const candidates = [0.9, 0.5, 0].map(d => [p.x + fx * d, p.z + fz * d]);
+    // Disconnects and drops near an entrance must never strand a crate in the passage.
+    if (relocate) {
+      for (const r of [2, 3, 4, 5, 6]) for (let i = 0; i < 16; i++) candidates.push([p.x + Math.cos(i * Math.PI / 8) * r, p.z + Math.sin(i * Math.PI / 8) * r]);
+      candidates.push([c.hx, c.hz]);
+      for (let z = -74; z <= 74; z += 2) for (let x = -74; x <= 74; x += 2) candidates.push([x, z]);
     }
-    c.x = p.x; c.z = p.z;
-    return c;
+    for (const [x, z] of candidates) {
+      if (Math.abs(x) > LIM || Math.abs(z) > LIM || blockedPoint(x, z, 0.6) || inDoorwayClearance(x, z, 0.6)) continue;
+      if (this.list.some(other => other !== c && other.by == null && Math.hypot(other.x - x, other.z - z) < 1.2)) continue;
+      c.by = null; c.idle = 0; c.padT = Date.now(); c.x = x; c.z = z; return c;
+    }
+    return null;
   }
 }
 

@@ -4,11 +4,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { WebSocketServer } from 'ws';
 import { World } from './npc.js';
-import { OBSTACLES, blockedPoint } from './nav.js';
+import { OBSTACLES, blockedPoint, crossesBuildingWall } from './nav.js';
 import { PAD } from './stockroom.js';
 import { LANGS } from './culture.js';
 import { APPEARANCE_OPTIONS } from './public/appearance.js';
 import { TOOL_STATION, LIGHT_SWITCH, INTERACTION_RANGE, nearestMess } from './public/interactions.js';
+import { DOORS, doorById, doorOccupied, closedDoorBlocks, DOOR_REACH, inDoorwayClearance } from './public/doors.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css' };
@@ -82,12 +83,15 @@ wss.on('connection', ws => {
     if (m.t === 'join') {
       const p = { id, name: String(m.name || 'Guest').slice(0, 20), avatar: cleanAvatar(m.avatar), dev: DEVICES.includes(m.dev) ? m.dev : 'keyboard', x: 0, z: 8, ry: 0 };
       players.set(id, p);
-      send(ws, { t: 'welcome', id, players: [...players.values()].map(({ ws: _w, ...q }) => q), npcs: world.roster(), stations: world.stationList(), obstacles: OBSTACLES, crates: crates.snapshot(), pad: PAD, plazaLightOn });
+      send(ws, { t: 'welcome', id, players: [...players.values()].map(({ ws: _w, ...q }) => q), npcs: world.roster(), stations: world.stationList(), obstacles: OBSTACLES, crates: crates.snapshot(), pad: PAD, plazaLightOn, doors: world.doors });
       broadcast({ t: 'join', player: p }, ws);
     } else if (m.t === 'move' && players.has(id)) {
       const p = players.get(id);
       const nx = num(m.x), nz = num(m.z);
-      if (!blockedPoint(nx, nz, 0.3)) { p.x = nx; p.z = nz; }
+      const closed = closedDoorBlocks(DOORS, world.doors, p.x, p.z, nx, nz);
+      const wall = crossesBuildingWall(p.x, p.z, nx, nz);
+      if (!closed && !wall && !blockedPoint(nx, nz, 0.3)) { p.x = nx; p.z = nz; }
+      else if (closed || wall) send(ws, { t: 'position', x: p.x, z: p.z });
       p.ry = num(m.ry); p.s = cleanState(m.s);
       const y = Math.max(0, Math.min(8, Number(m.y) || 0));
       broadcast({ t: 'move', id, x: p.x, y, z: p.z, ry: p.ry, s: p.s }, ws);
@@ -100,7 +104,16 @@ wss.on('connection', ws => {
     } else if (m.t === 'interact' && players.has(id)) {
       const p = players.get(id);
       if (p.down || p.hospUntil) { send(ws, { t: 'note', text: 'You cannot use equipment right now.' }); return; }
-      if (m.action === 'tool') {
+      if (m.action === 'door') {
+        const door = doorById(m.id);
+        if (!door || Math.hypot(p.x - door.x, p.z - door.z) >= DOOR_REACH) { send(ws, { t: 'note', text: 'Move closer to a door.' }); return; }
+        if (world.doors[door.id] && doorOccupied(door, [...players.values(), ...world.npcs])) {
+          send(ws, { t: 'note', text: 'The doorway is occupied. Wait until it is clear.' }); return;
+        }
+        delete world.doorPending[door.id];
+        world.doors[door.id] = !world.doors[door.id];
+        broadcast({ t: 'door', id: door.id, open: world.doors[door.id], by: id });
+      } else if (m.action === 'tool') {
         if (Math.hypot(p.x - TOOL_STATION.x, p.z - TOOL_STATION.z) >= INTERACTION_RANGE) { send(ws, { t: 'note', text: 'Move closer to the cleaning tool station.' }); return; }
         if (!p.tool && crates.list.some(c => c.by === id)) { send(ws, { t: 'note', text: 'Put down your crate before taking the cleaning tool.' }); return; }
         p.tool = !p.tool;
@@ -132,13 +145,15 @@ wss.on('connection', ws => {
     } else if (m.t === 'drop' && players.has(id)) {
       const c = crates.drop(players.get(id));
       if (c) broadcast({ t: 'carry', id: c.id, by: null, x: c.x, z: c.z });
+      else send(ws, { t: 'note', text: 'No safe place to drop the crate. Keep doorways clear.' });
     } else if (m.t === 'act' && players.has(id) && ['shout', 'faint', 'hurt', 'critical', 'litter', 'maint'].includes(m.a)) {
+      if (m.a === 'litter' && inDoorwayClearance(players.get(id).x, players.get(id).z, 1)) { send(ws, { t: 'note', text: 'Keep doorways clear of litter.' }); return; }
       world.playerAction(players.get(id), m.a);
     } else if (m.t === 'chat' && players.has(id)) {
       broadcast({ t: 'chat', id, text: String(m.text).slice(0, 120) });
     }
   });
-  ws.on('close', () => { const p = players.get(id), c = p && crates.drop(p); if (c) broadcast({ t: 'carry', id: c.id, by: null, x: c.x, z: c.z }); players.delete(id); broadcast({ t: 'leave', id }); });
+  ws.on('close', () => { const p = players.get(id), c = p && crates.drop(p, { relocate: true }); if (c) broadcast({ t: 'carry', id: c.id, by: null, x: c.x, z: c.z }); players.delete(id); broadcast({ t: 'leave', id }); });
 });
 
 setInterval(() => {

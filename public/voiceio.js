@@ -15,17 +15,18 @@ export class VoiceIO {
   }
   async start() {
     if (this.on) return true;
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('Microphone needs a secure (https) connection');
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.AudioWorkletNode) throw new Error('Microphone needs a secure (https) connection and a modern browser');
     const ctx = this.ensureCtx(); if (!ctx) throw new Error('Audio is not available');
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
     const src = ctx.createMediaStreamSource(this.stream);
     this.an = ctx.createAnalyser(); this.an.fftSize = 512; this.an.smoothingTimeConstant = 0.3;
-    this.proc = ctx.createScriptProcessor(2048, 1, 1);
-    const silent = ctx.createGain(); silent.gain.value = 0; // keeps the processor running without echoing the mic
+    if (!this.loaded) { await ctx.audioWorklet.addModule('mic-worklet.js'); this.loaded = true; }
+    this.proc = new AudioWorkletNode(ctx, 'mic-capture', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
+    const silent = ctx.createGain(); silent.gain.value = 0; // keeps the worklet pulled without echoing the mic
     src.connect(this.an); src.connect(this.proc); this.proc.connect(silent); silent.connect(ctx.destination);
     this.src = src; this.silent = silent;
-    this.proc.onaudioprocess = e => {
-      const d = e.inputBuffer.getChannelData(0), lv = rms(d), dt = d.length / ctx.sampleRate;
+    this.proc.port.onmessage = e => {
+      const d = e.data, lv = rms(d), dt = d.length / ctx.sampleRate;
       this.local.level = lv; this.local.at = performance.now();
       if (!this.mute && this.gate.step(lv, dt)) this.send(packFrame(this.getId() || 0, toPcm16(d, ctx.sampleRate)));
     };
@@ -33,7 +34,7 @@ export class VoiceIO {
   }
   stop() {
     this.on = false;
-    try { this.proc && (this.proc.onaudioprocess = null, this.proc.disconnect()); this.src && this.src.disconnect(); this.silent && this.silent.disconnect(); } catch {}
+    try { this.proc && (this.proc.port.onmessage = null, this.proc.disconnect()); this.src && this.src.disconnect(); this.silent && this.silent.disconnect(); } catch {}
     this.stream && this.stream.getTracks().forEach(t => t.stop());
     this.stream = this.proc = this.src = this.an = null; this.local.level = 0;
   }

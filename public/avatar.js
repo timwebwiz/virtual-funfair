@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { proprio, headStabilise } from './senses.js';
+import { APPEARANCE_OPTIONS } from './appearance.js';
 
 // Photo -> avatar descriptor (small JSON sent to other players).
 // Extracts the face crop, skin tone, hair and clothing colours from the photo.
@@ -28,13 +29,7 @@ export function analyzePhoto(img) {
   };
 }
 
-export const OPTIONS = {
-  hairStyle: ['short', 'long', 'bun', 'mohawk', 'bald'],
-  shirtStyle: ['short', 'long', 'hoodie'],
-  pantsStyle: ['long', 'shorts'],
-  hat: ['none', 'cap', 'beanie', 'tophat'],
-  glasses: ['none', 'round', 'shades']
-};
+export const OPTIONS = APPEARANCE_OPTIONS;
 export const MOODS = ['neutral', 'happy', 'excited', 'sad', 'angry', 'tired', 'nervous'];
 export const CULTURES = ['wave', 'bow', 'namaste', 'handshake', 'nod'];
 export const INTERESTS = ['thrill', 'food', 'games', 'relaxing'];
@@ -48,7 +43,8 @@ export const HEIGHT_RANGE = [130, 210], BUILD_RANGE = [0.8, 1.3];
 export const defaultAvatar = () => ({
   skin: '#e0ac8c', hair: '#3a2a1a', hairStyle: 'short', shirt: '#3b82f6', shirtStyle: 'short',
   pants: '#334155', pantsStyle: 'long', shoes: '#222222', hat: 'none', accent: '#c0392b',
-  glasses: 'none', backpack: false, height: 175, build: 1, face: null, faceMode: 'photo', fb: { ...FACE_DEFAULTS },
+  glasses: 'none', pattern: 'plain', footwear: 'shoes', neckwear: 'none', wristwear: 'none',
+  backpack: false, height: 175, build: 1, face: null, faceMode: 'photo', fb: { ...FACE_DEFAULTS },
   strength: 5, agility: 5, endurance: 5, mood: 'happy', culture: 'wave', interest: 'thrill', level: 0, lang: 'en', formal: 'casual', space: 'normal'
 });
 
@@ -129,11 +125,18 @@ export function buildAvatar(input) {
   else if (a.hairStyle === 'long') { cap(); add(HI, new THREE.BoxGeometry(0.5, 0.6, 0.1), hairM, 0, 1.5, -0.2); }
   else if (a.hairStyle === 'bun') { cap(); add(HI, new THREE.SphereGeometry(0.11, 16, 12), hairM, 0, 1.98, -0.12); }
   else if (a.hairStyle === 'mohawk') add(HI, new THREE.BoxGeometry(0.07, 0.2, 0.4), hairM, 0, 1.97, -0.02);
+  else if (a.hairStyle === 'ponytail') { cap(); add(HI, new THREE.CapsuleGeometry(0.09, 0.34, 6, 12), hairM, 0, 1.53, -0.25); }
+  else if (a.hairStyle === 'curly') {
+    cap();
+    for (const [x, y, z] of [[-0.18, 1.84, 0], [0, 1.96, 0], [0.18, 1.84, 0], [-0.12, 1.91, -0.16], [0.12, 1.91, -0.16]])
+      add(HI, new THREE.SphereGeometry(0.13, 12, 10), hairM, x, y, z);
+  }
 
   // hats
   if (a.hat === 'cap') { add(HI, new THREE.SphereGeometry(0.285, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), acc, 0, 1.77, 0); add(HI, new THREE.BoxGeometry(0.32, 0.03, 0.2), acc, 0, 1.78, 0.3); }
   else if (a.hat === 'beanie') add(HI, new THREE.SphereGeometry(0.3, 24, 12, 0, Math.PI * 2, 0, Math.PI / 1.7), acc, 0, 1.76, 0);
   else if (a.hat === 'tophat') { add(HI, new THREE.CylinderGeometry(0.28, 0.28, 0.03, 24), acc, 0, 1.93, 0); add(HI, new THREE.CylinderGeometry(0.17, 0.17, 0.32, 24), acc, 0, 2.09, 0); outer.userData.top = 2.3 * h; }
+  else if (a.hat === 'sunhat') { add(HI, new THREE.CylinderGeometry(0.38, 0.38, 0.025, 24), acc, 0, 1.91, 0); add(HI, new THREE.CylinderGeometry(0.17, 0.23, 0.16, 24), acc, 0, 1.99, 0); outer.userData.top = 2.1 * h; }
   else if (a.hat === 'hardhat') add(HI, new THREE.SphereGeometry(0.29, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2), acc, 0, 1.76, 0);
 
   // glasses
@@ -145,6 +148,13 @@ export function buildAvatar(input) {
     const m = mat('#050505', 0.2);
     for (const s of [-1, 1]) add(HI, new THREE.BoxGeometry(0.12, 0.07, 0.02), m, s * 0.09, 1.72, 0.24);
     add(HI, new THREE.BoxGeometry(0.06, 0.015, 0.015), m, 0, 1.73, 0.24);
+  } else if (a.glasses === 'square') {
+    const m = mat(a.accent, 0.3);
+    for (const s of [-1, 1]) {
+      for (const y of [1.68, 1.76]) add(HI, new THREE.BoxGeometry(0.14, 0.012, 0.015), m, s * 0.09, y, 0.24);
+      for (const x of [s * 0.09 - 0.07, s * 0.09 + 0.07]) add(HI, new THREE.BoxGeometry(0.012, 0.08, 0.015), m, x, 1.72, 0.24);
+    }
+    add(HI, new THREE.BoxGeometry(0.05, 0.012, 0.015), m, 0, 1.72, 0.24);
   }
 
   // expressive face parts
@@ -161,6 +171,22 @@ export function buildAvatar(input) {
 
   // torso
   add(body, new THREE.CapsuleGeometry(0.22, 0.45, 8, 16), shirt, 0, 1.15, 0);
+  if (a.pattern === 'stripe') add(body, new THREE.CylinderGeometry(0.225, 0.225, 0.11, 24, 1, true), new THREE.MeshStandardMaterial({ color: a.accent, side: THREE.DoubleSide }), 0, 1.17, 0);
+  if (a.pattern === 'star') {
+    const shape = new THREE.Shape();
+    for (let i = 0; i < 10; i++) {
+      const angle = Math.PI / 2 + i * Math.PI / 5, radius = i % 2 ? 0.045 : 0.1;
+      const x = Math.cos(angle) * radius, y = Math.sin(angle) * radius;
+      if (!i) shape.moveTo(x, y); else shape.lineTo(x, y);
+    }
+    shape.closePath(); add(body, new THREE.ShapeGeometry(shape), acc, 0, 1.22, 0.225);
+  }
+  if (a.shirtStyle === 'jacket') {
+    add(body, new THREE.BoxGeometry(0.04, 0.43, 0.025), acc, 0, 1.15, 0.223);
+    for (const s of [-1, 1]) add(body, new THREE.BoxGeometry(0.11, 0.12, 0.025), acc, s * 0.13, 1.02, 0.19);
+  }
+  if (a.neckwear === 'scarf') { add(body, new THREE.TorusGeometry(0.12, 0.04, 8, 20), acc, 0, 1.48, 0).rotation.x = Math.PI / 2; add(body, new THREE.BoxGeometry(0.09, 0.26, 0.035), acc, 0.07, 1.31, 0.22); }
+  if (a.neckwear === 'necklace') { const chain = add(body, new THREE.TorusGeometry(0.14, 0.012, 8, 24, Math.PI), acc, 0, 1.45, 0.2); chain.rotation.z = Math.PI; add(body, new THREE.SphereGeometry(0.035, 12, 8), acc, 0, 1.31, 0.22); }
   if (a.vest) add(body, new THREE.CylinderGeometry(0.235, 0.235, 0.3, 20, 1, true), new THREE.MeshStandardMaterial({ color: a.vest, side: THREE.DoubleSide, emissive: a.vest, emissiveIntensity: 0.25 }), 0, 1.15, 0);
   if (a.shirtStyle === 'hoodie') add(body, new THREE.SphereGeometry(0.17, 16, 12), shirt, 0, 1.52, -0.13);
   if (a.backpack) { add(body, new THREE.BoxGeometry(0.34, 0.45, 0.16), acc, 0, 1.2, -0.28); }
@@ -168,15 +194,24 @@ export function buildAvatar(input) {
   // arms (pivot at the shoulder so they swing naturally)
   for (const s of [-1, 1]) {
     const arm = new THREE.Group(); arm.name = s < 0 ? 'armL' : 'armR'; arm.position.set(s * 0.34, 1.42, 0); body.add(arm);
-    if (a.shirtStyle === 'short') { add(arm, new THREE.CylinderGeometry(0.08, 0.075, 0.22, 12), shirt, 0, -0.12, 0); add(arm, new THREE.CapsuleGeometry(0.065, 0.3, 6, 12), skin, 0, -0.4, 0); add(arm, new THREE.SphereGeometry(0.075), skin, 0, -0.68, 0); }
+    if (a.shirtStyle === 'tank') { add(arm, new THREE.CapsuleGeometry(0.07, 0.5, 6, 12), skin, 0, -0.3, 0); add(arm, new THREE.SphereGeometry(0.075), skin, 0, -0.68, 0); }
+    else if (a.shirtStyle === 'short') { add(arm, new THREE.CylinderGeometry(0.08, 0.075, 0.22, 12), shirt, 0, -0.12, 0); add(arm, new THREE.CapsuleGeometry(0.065, 0.3, 6, 12), skin, 0, -0.4, 0); add(arm, new THREE.SphereGeometry(0.075), skin, 0, -0.68, 0); }
     else { add(arm, new THREE.CapsuleGeometry(0.07, 0.5, 6, 12), shirt, 0, -0.3, 0); add(arm, new THREE.SphereGeometry(0.075), skin, 0, -0.68, 0); }
+    if (s === 1 && a.wristwear !== 'none') {
+      add(arm, new THREE.CylinderGeometry(0.078, 0.078, 0.055, 12), acc, 0, -0.59, 0);
+      if (a.wristwear === 'watch') add(arm, new THREE.BoxGeometry(0.1, 0.08, 0.025), mat('#222222'), 0, -0.59, 0.08);
+    }
   }
+  if (a.pantsStyle === 'skirt') add(body, new THREE.CylinderGeometry(0.2, 0.34, 0.38, 24), pants, 0, 0.76, 0);
   // legs (pivot at the hip)
   for (const s of [-1, 1]) {
     const leg = new THREE.Group(); leg.name = s < 0 ? 'legL' : 'legR'; leg.position.set(s * 0.12, 0.78, 0); body.add(leg);
-    if (a.pantsStyle === 'shorts') { add(leg, new THREE.CapsuleGeometry(0.1, 0.18, 6, 12), pants, 0, -0.17, 0); add(leg, new THREE.CapsuleGeometry(0.08, 0.3, 6, 12), skin, 0, -0.5, 0); }
+    if (a.pantsStyle === 'skirt') add(leg, new THREE.CapsuleGeometry(0.08, 0.6, 6, 12), skin, 0, -0.38, 0);
+    else if (a.pantsStyle === 'shorts') { add(leg, new THREE.CapsuleGeometry(0.1, 0.18, 6, 12), pants, 0, -0.17, 0); add(leg, new THREE.CapsuleGeometry(0.08, 0.3, 6, 12), skin, 0, -0.5, 0); }
     else add(leg, new THREE.CapsuleGeometry(0.09, 0.6, 6, 12), pants, 0, -0.38, 0);
     add(leg, new THREE.BoxGeometry(0.15, 0.08, 0.27), mat(a.shoes, 0.7), 0, -0.73, 0.05);
+    if (a.footwear === 'boots') add(leg, new THREE.CylinderGeometry(0.105, 0.105, 0.22, 12), mat(a.shoes), 0, -0.61, 0);
+    if (a.footwear === 'sneakers') add(leg, new THREE.BoxGeometry(0.15, 0.025, 0.27), acc, 0, -0.765, 0.05);
   }
   return outer;
 }

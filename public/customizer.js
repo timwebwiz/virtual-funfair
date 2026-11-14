@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { buildAvatar, analyzePhoto, FACE_DEFAULTS, FACE_RANGES, OPTIONS, HEIGHT_RANGE, BUILD_RANGE, MOODS, CULTURES, INTERESTS, TRAIT_RANGE, LANGS, FORMAL, SPACES } from './avatar.js';
 
-const COLORS = [['skin', 'Skin'], ['hair', 'Hair'], ['shirt', 'Top'], ['pants', 'Bottoms'], ['shoes', 'Shoes'], ['accent', 'Hat / bag colour']];
-const SELECTS = [['hairStyle', 'Hair style'], ['shirtStyle', 'Top style'], ['pantsStyle', 'Bottoms'], ['hat', 'Hat'], ['glasses', 'Glasses']];
+const COLORS = [['skin', 'Skin'], ['hair', 'Hair'], ['shirt', 'Top'], ['pants', 'Bottoms'], ['shoes', 'Shoes'], ['accent', 'Accent / accessories']];
+const SELECTS = [['hairStyle', 'Hair style'], ['shirtStyle', 'Top style'], ['pantsStyle', 'Bottoms'], ['pattern', 'Top pattern'], ['footwear', 'Footwear'], ['hat', 'Hat'], ['glasses', 'Glasses'], ['neckwear', 'Neckwear'], ['wristwear', 'Wristwear']];
 const TRAITS = [['strength', 'Strength'], ['agility', 'Agility'], ['endurance', 'Endurance']];
 const PERSONAL = [['mood', 'Mood', MOODS], ['culture', 'Greeting style', CULTURES], ['lang', 'NPC greets me in', Object.keys(LANGS)], ['formal', 'Formality', FORMAL], ['space', 'Personal space', SPACES], ['interest', 'Interest', INTERESTS]];
 const cap = s => s[0].toUpperCase() + s.slice(1);
@@ -104,7 +104,21 @@ export function initCustomizer({ root, get, set }) {
   const ref = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.75, 0.03), new THREE.MeshBasicMaterial({ color: '#ffd23f' })); // 175 cm marker
   ref.position.set(-0.9, 0.875, 0); scene.add(ref);
   let model = null;
-  const rebuild = () => { if (model) scene.remove(model); model = buildAvatar(get()); scene.add(model); };
+  const rebuild = () => {
+    if (model) {
+      scene.remove(model);
+      const geometries = new Set(), materials = new Set(), textures = new Set();
+      model.traverse(o => {
+        if (o.geometry) geometries.add(o.geometry);
+        for (const m of (Array.isArray(o.material) ? o.material : o.material ? [o.material] : [])) {
+          materials.add(m);
+          if (m.map) textures.add(m.map);
+        }
+      });
+      geometries.forEach(g => g.dispose()); materials.forEach(m => m.dispose()); textures.forEach(t => t.dispose());
+    }
+    model = buildAvatar(get()); scene.add(model);
+  };
   let raf = 0, open = false;
   const loop = t => { if (!open) return; if (model) model.rotation.y = t / 1500; renderer.render(scene, cam); raf = requestAnimationFrame(loop); };
 

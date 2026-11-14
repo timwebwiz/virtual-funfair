@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { ITEMS, nearestItem, useItem, beautyAt, beautyText, muralSpec, culturalRead, normCheck, cutsInLine } from './items.js';
+import { nearestMess, INTERACTION_RANGE } from './interactions.js';
 import { Physio, hrZone, feeling, needsCalm } from './physio.js';
 import { VoiceIO } from './voiceio.js';
 import { LipSync, voiceGain, unpackFrame } from './voicechat.js';
@@ -96,13 +97,19 @@ function start(name) {
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.2, 8), new THREE.MeshStandardMaterial({ color: '#555' })); post.position.set(p.x - p.r, 1.1, p.z - p.r); scene.add(post);
   };
 
-  // usable objects: fountain, strength tester, bench, mural
+  const plazaLamp = new THREE.PointLight('#ffe3a0', 0, 20);
+  plazaLamp.position.set(-5, 3, 4); scene.add(plazaLamp);
+  const lampMaterial = new THREE.MeshStandardMaterial({ color: '#555555', emissive: '#ffcb55', emissiveIntensity: 0 });
+  const setPlazaLight = on => { plazaLamp.intensity = on ? 40 : 0; lampMaterial.emissiveIntensity = on ? 2 : 0; };
+  // usable objects: fountain, strength tester, bench, mural, tool station and light switch
   ITEMS.forEach(it => {
     const g = new THREE.Group(); g.position.set(it.x, 0, it.z);
     const stone = new THREE.MeshStandardMaterial({ color: '#b8b8c0' });
     if (it.id === 'fountain') { const b = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.9, 0.5, 20), stone); b.position.y = 0.25; const w = new THREE.Mesh(new THREE.CylinderGeometry(0.65, 0.65, 0.05, 20), new THREE.MeshStandardMaterial({ color: '#4fc3f7', emissive: '#0a3a55' })); w.position.y = 0.52; const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.12, 0.9, 10), stone); sp.position.y = 0.9; g.add(b, w, sp); }
     else if (it.id === 'bell') { const base = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.2, 0.9), new THREE.MeshStandardMaterial({ color: '#8a5a2b' })); base.position.y = 0.1; const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.6, 8), new THREE.MeshStandardMaterial({ color: '#c0392b' })); pole.position.y = 1.4; const bell = new THREE.Mesh(new THREE.SphereGeometry(0.22, 12, 10), new THREE.MeshStandardMaterial({ color: '#ffd166', metalness: 0.8, roughness: 0.3 })); bell.position.y = 2.7; g.add(base, pole, bell); }
     else if (it.id === 'bench') { const wood = new THREE.MeshStandardMaterial({ color: '#8b5a2b' }); const seat = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.12, 0.8), wood); seat.position.y = 0.5; const back = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.6, 0.1), wood); back.position.set(0, 0.85, -0.38); const l1 = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.5, 0.7), stone), l2 = l1.clone(); l1.position.set(-1.1, 0.25, 0); l2.position.set(1.1, 0.25, 0); g.add(seat, back, l1, l2); }
+    else if (it.id === 'tool-station') { const stand = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.9, 0.9), stone); stand.position.y = 0.45; const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 1.1, 8), new THREE.MeshStandardMaterial({ color: '#986738' })); handle.position.y = 1.35; const brush = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.14, 0.16), new THREE.MeshStandardMaterial({ color: '#d1a050' })); brush.position.y = 0.88; g.add(stand, handle, brush); }
+    else if (it.id === 'light-switch') { const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 2.8, 12), stone); pole.position.y = 1.4; const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.24, 16, 12), lampMaterial); bulb.position.y = 2.9; const button = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.25, 0.12), new THREE.MeshStandardMaterial({ color: '#e84c3d' })); button.position.set(0, 1.1, 0.18); g.add(pole, bulb, button); }
     else { const c = document.createElement('canvas'); c.width = 512; c.height = 256; const x = c.getContext('2d'); x.fillStyle = '#f5efe0'; x.fillRect(0, 0, 512, 256); muralSpec(new Date().getDate() * 97 + 13).forEach(m => { x.fillStyle = m.c; x.beginPath(); if (m.round) x.arc(m.x * 512, m.y * 256, m.s * 256, 0, 7); else x.rect(m.x * 480, m.y * 220, m.s * 512, m.s * 300); x.fill(); }); const t = new THREE.CanvasTexture(c); const w = new THREE.Mesh(new THREE.BoxGeometry(6, 3, 0.3), new THREE.MeshStandardMaterial({ map: t })); w.position.y = 1.5; g.add(w); }
     scene.add(g);
   });
@@ -168,11 +175,22 @@ function start(name) {
     s.scale.set(1.2, 0.3, 1); s.position.y = 2.2; return s;
   };
   const tagged = (g, text) => { const t = nameTag(text); t.position.y = (g.userData.top || 2) + 0.25; g.add(t); return t; };
+  const setTool = (g, equipped) => {
+    const arm = g.getObjectByName('armR');
+    const old = arm.getObjectByName('cleaningTool');
+    if (old) { arm.remove(old); old.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); }); }
+    g.userData.tool = equipped;
+    if (!equipped) return;
+    const tool = new THREE.Group(); tool.name = 'cleaningTool'; tool.position.set(0, -0.65, 0.1); tool.rotation.x = 0.4;
+    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 1.1, 8), new THREE.MeshStandardMaterial({ color: '#986738' }));
+    const brush = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.13, 0.14), new THREE.MeshStandardMaterial({ color: '#d1a050' }));
+    handle.position.y = -0.35; brush.position.y = -0.9; tool.add(handle, brush); arm.add(tool);
+  };
   const makePlayer = p => {
     const g = buildAvatar(p.avatar || defaultAvatar());
     tagged(g, p.name + stars(p.avatar && p.avatar.level)); g.position.set(p.x, 0, p.z);
     g.userData = { tx: p.x, tz: p.z, try: p.ry, moving: false, name: p.name, av: p.avatar || {} };
-    scene.add(g); others.set(p.id, g); return g;
+    setTool(g, !!p.tool); scene.add(g); others.set(p.id, g); return g;
   };
 
   const buildStation = st => {
@@ -282,8 +300,8 @@ function start(name) {
   let me = buildAvatar(avatar), meTag = tagged(me, name + stars(avatar.level)); me.position.set(0, 0, 8); scene.add(me);
   let vy = 0;
   const swapMe = () => { // rebuild own avatar after customization
-    const pos = me.position.clone(), ry = me.rotation.y; scene.remove(me);
-    me = buildAvatar(avatar); meTag = tagged(me, name + stars(avatar.level)); me.position.copy(pos); me.rotation.y = ry; scene.add(me); setDown(me, meDown); reattach();
+    const pos = me.position.clone(), ry = me.rotation.y, tool = !!me.userData.tool; scene.remove(me);
+    me = buildAvatar(avatar); meTag = tagged(me, name + stars(avatar.level)); me.position.copy(pos); me.rotation.y = ry; setTool(me, tool); scene.add(me); setDown(me, meDown); reattach();
   };
   onAvatarChange = () => { swapMe(); if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'avatar', avatar })); };
 
@@ -329,7 +347,7 @@ function start(name) {
       voiceIO.play(f.id, f.pcm, voiceGain(d), panOf(me.position.x, me.position.z, me.rotation.y, og.position.x, og.position.z)); return;
     }
     const m = JSON.parse(e.data);
-    if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); if (m.pad) buildPad(m.pad); }
+    if (m.t === 'welcome') { myId = m.id; m.players.forEach(p => p.id !== myId && makePlayer(p)); obstacles = m.obstacles || []; collide(me.position); m.npcs.forEach(addNpc); (m.stations || []).forEach(buildStation); (m.crates || []).forEach(addCrate); if (m.pad) buildPad(m.pad); setPlazaLight(m.plazaLightOn); }
     else if (m.t === 'roster') m.npcs.forEach(addNpc);
     else if (m.t === 'npcs') {
       weather = m.w; clockMin = m.c; syncLitter(m.l || []); rideFault = m.r || [0, 0];
@@ -343,7 +361,10 @@ function start(name) {
     else if (m.t === 'hurt') { const og = others.get(m.id); if (og) og.userData.hurt = m.v; if (m.id === myId) { meHurt = m.v; $('hud').textContent = m.v ? 'You are injured.' : 'A medic treated your injury.'; } }
     else if (m.t === 'down') { if (m.id === myId) { meDown = m.v; setDown(me, m.v); if (!m.v) { meHurt = false; $('hud').textContent = 'A medic helped you up.'; }; } else { const g = others.get(m.id); if (g) setDown(g, m.v); } }
     else if (m.t === 'join') makePlayer(m.player);
-    else if (m.t === 'avatar') { const old = others.get(m.id); if (old) { const u = old.userData, p = old.position.clone(), r = old.rotation.y; scene.remove(old); const g = buildAvatar(m.avatar); tagged(g, m.name + stars(m.avatar.level)); g.position.copy(p); g.rotation.y = r; u.av = m.avatar; g.userData = u; scene.add(g); others.set(m.id, g); reattach(); } }
+    else if (m.t === 'avatar') { const old = others.get(m.id); if (old) { const u = old.userData, p = old.position.clone(), r = old.rotation.y; scene.remove(old); const g = buildAvatar(m.avatar); tagged(g, m.name + stars(m.avatar.level)); g.position.copy(p); g.rotation.y = r; u.av = m.avatar; g.userData = u; setTool(g, !!u.tool); scene.add(g); others.set(m.id, g); reattach(); } }
+    else if (m.t === 'tool') { const g = m.id === myId ? me : others.get(m.id); if (g) setTool(g, m.equipped); }
+    else if (m.t === 'plaza-light') { setPlazaLight(m.on); if (m.id === myId) { react('reach', 900, true); $('hud').textContent = `Plaza light switched ${m.on ? 'on' : 'off'}.`; } }
+    else if (m.t === 'cleaned') { const mesh = litterMeshes.get(m.litterId); if (mesh) { scene.remove(mesh); mesh.material.dispose(); litterMeshes.delete(m.litterId); } if (m.id === myId) { react('reach', 1200, true); $('hud').textContent = m.type === 1 ? 'You cleaned up the spill.' : 'You cleaned up the litter.'; } }
     else if (m.t === 'move') { const g = others.get(m.id); if (g) Object.assign(g.userData, { tx: m.x, ty: m.y || 0, tz: m.z, try: m.ry, s: m.s }); }
     else if (m.t === 'emote') { const g = others.get(m.id); if (g) { g.userData.emote = { e: m.e, at: performance.now() }; const me2 = emoteState(meEmote, performance.now()); if (m.e === 'handshake' && me2.emote === 'handshake' && Math.hypot(g.position.x - me.position.x, g.position.z - me.position.z) < 3.5) $('hud').textContent = `🤝 You shook hands with ${g.userData.name}!`; } }
     else if (m.t === 'crate') { const c = crates.get(m.id); if (c && c.userData.by == null) { c.userData.x = m.x; c.userData.z = m.z; c.position.set(m.x, c.userData.sz / 2, m.z); } }
@@ -401,8 +422,12 @@ function start(name) {
   let sitUntil = 0, lastFeelMsg = 0, lastBeauty = 0, lastNorm = 0, lastFeeling = '', lastPeople = [];
   const useNearest = () => {
     if (meDown) return;
-    const it = nearestItem(me.position.x, me.position.z, 2.8);
-    if (!it) { $('hud').textContent = 'Nothing to use here. Try the fountain, bench, strength tester or mural.'; return; }
+    if (ws.readyState !== WebSocket.OPEN) { $('hud').textContent = 'Connect to the park before using objects.'; return; }
+    const it = nearestItem(me.position.x, me.position.z, INTERACTION_RANGE);
+    const mess = me.userData.tool && nearestMess(me.position.x, me.position.z, [...litterMeshes.values()].map(mesh => ({ x: mesh.position.x, z: mesh.position.z })));
+    if (mess && (!it || Math.hypot(mess.x - me.position.x, mess.z - me.position.z) < Math.hypot(it.x - me.position.x, it.z - me.position.z))) { ws.send(JSON.stringify({ t: 'interact', action: 'clean' })); return; }
+    if (!it) { $('hud').textContent = me.userData.tool ? 'No litter, spill or usable object within reach.' : 'Nothing to use here. Try the cleaning station, light switch, fountain, bench, strength tester or mural.'; return; }
+    if (it.kind === 'tool' || it.kind === 'switch') { ws.send(JSON.stringify({ t: 'interact', action: it.kind })); turn(me, Math.atan2(it.x - me.position.x, it.z - me.position.z), 1); return; }
     const now = performance.now();
     const queued = cutsInLine(me.position, it, lastPeople);
     if (queued && it.kind !== 'look') guilt(4, `You cut in front of ${queued.name}, who was waiting.`);
@@ -663,7 +688,10 @@ function start(name) {
       const fl = feeling({ mood, hr: phys.hr, adrenaline: phys.adrenaline, cortisol: phys.cortisol, pain: body.pain, tired: vitals.tired });
       if (fl !== lastFeeling) { lastFeeling = fl; if (needsCalm(fl) && now - lastFeelMsg > 30000 && now > lastSoundMsg) { lastFeelMsg = now; $('hud').textContent = `You feel ${fl}. ${dev.kind === 'touch' ? 'Tap 🌬' : 'Press B'} to breathe slowly.`; } }
       for (const p of people) { if (!p.id.startsWith('p')) continue; const av = others.get(+p.id.slice(1))?.userData.av; if (!av) continue; const d = Math.hypot(p.x - mePt.x, p.z - mePt.z), nc = normCheck({ dist: d, other: av }); if (nc && nc.back && now - lastNorm > 20000) { lastNorm = now; $('hud').textContent = `${p.name}: ${nc.text}`; chatMood = 'nervous'; chatMoodUntil = now + 2000; } }
-      const fe = $('feel'); if (fe) fe.textContent = `💓 ${Math.round(phys.hr)} bpm (${hrZone(phys.hr)}) · 🫁 ${Math.round(phys.resp)}/min · ⚡ adrenaline ${Math.round(phys.adrenaline * 100)}% · 🧪 cortisol ${Math.round(phys.cortisol * 100)}% · 🫶 ${fl}${bty.name && bty.score > 0.3 ? ' · 🎨 ' + bty.name : ''}${nearestItem(me.position.x, me.position.z, 2.8) ? ' · 🖐 ' + (dev.kind === 'touch' ? 'tap 🖐' : 'U') + ': ' + nearestItem(me.position.x, me.position.z, 2.8).name : ''}`;
+      const nearbyItem = nearestItem(me.position.x, me.position.z, INTERACTION_RANGE);
+      const nearbyMess = me.userData.tool && nearestMess(me.position.x, me.position.z, [...litterMeshes.values()].map(mesh => ({ x: mesh.position.x, z: mesh.position.z })));
+      const useTarget = nearbyMess && (!nearbyItem || Math.hypot(nearbyMess.x - me.position.x, nearbyMess.z - me.position.z) < Math.hypot(nearbyItem.x - me.position.x, nearbyItem.z - me.position.z)) ? 'clean litter or spill' : nearbyItem?.name;
+      const fe = $('feel'); if (fe) fe.textContent = `💓 ${Math.round(phys.hr)} bpm (${hrZone(phys.hr)}) · 🫁 ${Math.round(phys.resp)}/min · ⚡ adrenaline ${Math.round(phys.adrenaline * 100)}% · 🧪 cortisol ${Math.round(phys.cortisol * 100)}% · 🫶 ${fl}${bty.name && bty.score > 0.3 ? ' · 🎨 ' + bty.name : ''}${useTarget ? ' · 🖐 ' + (dev.kind === 'touch' ? 'tap 🖐' : 'U') + ': ' + useTarget : ''}`;
       const sirenNow = !!(hr.loud && hr.loud.kind === 'siren' && hr.loud.v > 0.3);
       const pr = pickReaction({ loud: hr.total, siren: sirenNow && !sirenHeard, smell: sm, rain: weather === 'rain', night, moving });
       if (sirenNow && !sirenHeard) { buzz('siren'); phys.spike(0.3); }

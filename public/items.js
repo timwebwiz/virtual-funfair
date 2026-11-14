@@ -1,14 +1,16 @@
 // Usable park objects, beauty, ethics and culture. Pure logic, no DOM.
+import { TOOL_STATION, LIGHT_SWITCH, INTERACTION_RANGE } from './interactions.js';
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
 export const ITEMS = [
   { id: 'fountain', name: 'drinking fountain', x: -6, z: -6, kind: 'drink', ht: 0.9, hr: 0.9 },
   { id: 'bell', name: 'strength tester', x: 10, z: -32, kind: 'swing', ht: 0.9, hr: 0.9 },
   { id: 'bench', name: 'park bench', x: -4, z: 30, kind: 'sit', ht: 0.7, hr: 1.4 },
-  { id: 'mural', name: 'painted mural', x: -10, z: -46, kind: 'look', ht: 0.3, hr: 3 }
+  { id: 'mural', name: 'painted mural', x: -10, z: -46, kind: 'look', ht: 0.3, hr: 3 },
+  TOOL_STATION, LIGHT_SWITCH
 ];
 export const itemById = id => ITEMS.find(i => i.id === id);
-export const nearestItem = (x, z, within = 2.6) => {
+export const nearestItem = (x, z, within = INTERACTION_RANGE) => {
   let best = null, bd = within;
   for (const i of ITEMS) { const d = Math.hypot(i.x - x, i.z - z); if (d < bd) { bd = d; best = i; } }
   return best;

@@ -8,6 +8,7 @@ import { OBSTACLES, blockedPoint } from './nav.js';
 import { PAD } from './stockroom.js';
 import { LANGS } from './culture.js';
 import { APPEARANCE_OPTIONS } from './public/appearance.js';
+import { TOOL_STATION, LIGHT_SWITCH, INTERACTION_RANGE, nearestMess } from './public/interactions.js';
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.json': 'application/json', '.css': 'text/css' };
@@ -30,6 +31,7 @@ const players = new Map(); // id -> {name, avatar, x, z, ry, ws}
 let nextId = 1;
 const world = new World(players, m => broadcast(m));
 const crates = world.crates;
+let plazaLightOn = false;
 let lastNpcIds = '';
 
 const send = (ws, m) => ws.readyState === 1 && ws.send(JSON.stringify(m));
@@ -80,7 +82,7 @@ wss.on('connection', ws => {
     if (m.t === 'join') {
       const p = { id, name: String(m.name || 'Guest').slice(0, 20), avatar: cleanAvatar(m.avatar), dev: DEVICES.includes(m.dev) ? m.dev : 'keyboard', x: 0, z: 8, ry: 0 };
       players.set(id, p);
-      send(ws, { t: 'welcome', id, players: [...players.values()].map(({ ws: _w, ...q }) => q), npcs: world.roster(), stations: world.stationList(), obstacles: OBSTACLES, crates: crates.snapshot(), pad: PAD });
+      send(ws, { t: 'welcome', id, players: [...players.values()].map(({ ws: _w, ...q }) => q), npcs: world.roster(), stations: world.stationList(), obstacles: OBSTACLES, crates: crates.snapshot(), pad: PAD, plazaLightOn });
       broadcast({ t: 'join', player: p }, ws);
     } else if (m.t === 'move' && players.has(id)) {
       const p = players.get(id);
@@ -95,6 +97,26 @@ wss.on('connection', ws => {
       const p = players.get(id);
       p.avatar = cleanAvatar(m.avatar);
       broadcast({ t: 'avatar', id, name: p.name, avatar: p.avatar }, ws);
+    } else if (m.t === 'interact' && players.has(id)) {
+      const p = players.get(id);
+      if (p.down || p.hospUntil) { send(ws, { t: 'note', text: 'You cannot use equipment right now.' }); return; }
+      if (m.action === 'tool') {
+        if (Math.hypot(p.x - TOOL_STATION.x, p.z - TOOL_STATION.z) >= INTERACTION_RANGE) { send(ws, { t: 'note', text: 'Move closer to the cleaning tool station.' }); return; }
+        if (!p.tool && crates.list.some(c => c.by === id)) { send(ws, { t: 'note', text: 'Put down your crate before taking the cleaning tool.' }); return; }
+        p.tool = !p.tool;
+        broadcast({ t: 'tool', id, equipped: p.tool });
+        send(ws, { t: 'note', text: p.tool ? 'Cleaning tool equipped. Use it near litter or a spill.' : 'Cleaning tool returned.' });
+      } else if (m.action === 'clean') {
+        if (!p.tool) { send(ws, { t: 'note', text: 'Get a cleaning tool from the station first.' }); return; }
+        const mess = nearestMess(p.x, p.z, world.litter);
+        if (!mess) { send(ws, { t: 'note', text: 'There is no litter or spill within reach.' }); return; }
+        world.litter.splice(world.litter.indexOf(mess), 1);
+        broadcast({ t: 'cleaned', id, litterId: mess.id, type: mess.type });
+      } else if (m.action === 'switch') {
+        if (Math.hypot(p.x - LIGHT_SWITCH.x, p.z - LIGHT_SWITCH.z) >= INTERACTION_RANGE) { send(ws, { t: 'note', text: 'Move closer to the plaza light switch.' }); return; }
+        plazaLightOn = !plazaLightOn;
+        broadcast({ t: 'plaza-light', on: plazaLightOn, id });
+      } else send(ws, { t: 'note', text: 'Unknown interaction.' });
     } else if (m.t === 'emote' && players.has(id) && EMOTES.includes(m.e)) {
       const p = players.get(id);
       p.emoteGreet = ['wave', 'bow', 'namaste', 'handshake', 'nod'].includes(m.e);
@@ -104,6 +126,7 @@ wss.on('connection', ws => {
       const cur = c || crates.get(m.id);
       if (cur && !cur.by) { if (c) broadcast({ t: 'crate', id: c.id, x: c.x, z: c.z }, ws); else send(ws, { t: 'crate', id: cur.id, x: cur.x, z: cur.z }); }
     } else if (m.t === 'grab' && players.has(id)) {
+      if (players.get(id).tool) { send(ws, { t: 'note', text: 'Return the cleaning tool before lifting a crate.' }); return; }
       const r = crates.grab(players.get(id));
       if (r.err) send(ws, { t: 'note', text: r.err }); else broadcast({ t: 'carry', id: r.crate.id, by: id, w: r.crate.w });
     } else if (m.t === 'drop' && players.has(id)) {

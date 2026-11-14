@@ -179,8 +179,8 @@ export const maintMethods = {
   finishTask(n) {
     const t = n.task; if (!t) return;
     const e = t.e;
-    if (t.type === 'litter') { this.litter.splice(this.litter.indexOf(e), 1); n.bag++; }
-    else if (t.type === 'spill') { this.litter.splice(this.litter.indexOf(e), 1); this.radio(n.name, `Spill near ${this.place(t.x, t.z)} cleaned.`); }
+    if (t.type === 'litter') { const i = this.litter.indexOf(e); if (i !== -1) { this.litter.splice(i, 1); n.bag++; } }
+    else if (t.type === 'spill') { const i = this.litter.indexOf(e); if (i !== -1) { this.litter.splice(i, 1); this.radio(n.name, `Spill near ${this.place(t.x, t.z)} cleaned.`); } }
     else if (t.type === 'call') {
       e.maintCall = false;
       const near = this.litter.filter(i => Math.hypot(i.x - e.x, i.z - e.z) < 6);
